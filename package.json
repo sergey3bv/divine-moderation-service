@@ -1,0 +1,21 @@
+{
+  "name": "divine-moderation-service",
+  "version": "0.1.0",
+  "description": "Content moderation worker for Divine video uploads",
+  "type": "module",
+  "scripts": {
+    "dev": "wrangler dev",
+    "deploy": "wrangler deploy",
+    "tail": "wrangler tail",
+    "test": "vitest run",
+    "test:watch": "vitest"
+  },
+  "dependencies": {
+    "nostr-tools": "^2.7.2"
+  },
+  "devDependencies": {
+    "wrangler": "^3.78.0",
+    "vitest": "^2.0.0",
+    "@cloudflare/vitest-pool-workers": "^0.5.0"
+  }
+}

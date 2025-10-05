@@ -1,0 +1,46 @@
+# Divine Video Moderation Service
+name = "divine-moderation-service"
+main = "src/index.mjs"
+compatibility_date = "2024-10-01"
+compatibility_flags = ["nodejs_compat"]
+
+# KV for storing moderation results
+[[kv_namespaces]]
+binding = "MODERATION_KV"
+id = "eee0689974834390acd39d543002cac3"
+
+# R2 binding for accessing uploaded videos
+[[r2_buckets]]
+binding = "R2_VIDEOS"
+bucket_name = "nostrvine-media"
+
+# Queue producer configuration (for testing)
+[[queues.producers]]
+binding = "MODERATION_QUEUE"
+queue = "video-moderation-queue"
+
+# Queue consumer configuration
+[[queues.consumers]]
+queue = "video-moderation-queue"
+max_batch_size = 10
+max_batch_timeout = 30
+max_retries = 3
+
+# Environment variables
+[vars]
+MODERATION_ENABLED = "true"
+CDN_DOMAIN = "cdn.divine.video"  # Update with your CDN domain
+
+# Thresholds for content classification (0.0 - 1.0)
+NSFW_THRESHOLD_HIGH = "0.8"           # Auto-quarantine
+NSFW_THRESHOLD_MEDIUM = "0.6"          # Flag for human review
+VIOLENCE_THRESHOLD_HIGH = "0.8"
+VIOLENCE_THRESHOLD_MEDIUM = "0.6"
+AI_GENERATED_THRESHOLD_HIGH = "0.8"    # Auto-quarantine AI content
+AI_GENERATED_THRESHOLD_MEDIUM = "0.6"   # Flag for human review
+
+# Secrets (set with: wrangler secret put <NAME>)
+# NOSTR_PRIVATE_KEY - for signing events to faro.nos.social
+# FARO_RELAY_URL - Nostr relay for faro moderation events
+# SIGHTENGINE_API_USER - (optional, for Phase 2)
+# SIGHTENGINE_API_SECRET - (optional, for Phase 2)

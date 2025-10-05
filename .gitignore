@@ -1,0 +1,10 @@
+node_modules/
+.wrangler/
+.dev.vars
+*.log
+.DS_Store
+dist/
+coverage/
+.private-journal/
+example_vine_porn/
+old_files/
