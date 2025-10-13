@@ -83,11 +83,19 @@ export default {
         return authError;
       }
 
-      // List all moderation results from KV
-      const videos = [];
-      const list = await env.MODERATION_KV.list({ prefix: 'moderation:' });
+      // Parse pagination parameters
+      const cursor = url.searchParams.get('cursor') || undefined;
+      const limit = Math.min(parseInt(url.searchParams.get('limit') || '50', 10), 100); // Max 100 per page
 
-      for (const key of list.keys) {
+      // List moderation results from KV with pagination
+      const videos = [];
+      const listResult = await env.MODERATION_KV.list({
+        prefix: 'moderation:',
+        cursor,
+        limit
+      });
+
+      for (const key of listResult.keys) {
         const data = await env.MODERATION_KV.get(key.name);
         if (data) {
           try {
@@ -98,7 +106,11 @@ export default {
         }
       }
 
-      return new Response(JSON.stringify({ videos }), {
+      return new Response(JSON.stringify({
+        videos,
+        cursor: listResult.cursor,
+        list_complete: listResult.list_complete
+      }), {
         headers: { 'Content-Type': 'application/json' }
       });
     }

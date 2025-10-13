@@ -364,6 +364,33 @@
       color: #60a5fa;
       text-decoration: underline;
     }
+
+    .pagination {
+      display: flex;
+      gap: 15px;
+      margin-bottom: 20px;
+      flex-wrap: wrap;
+      align-items: center;
+      padding: 15px;
+      background: #1a1a1a;
+      border: 1px solid #333;
+      border-radius: 8px;
+    }
+
+    .pagination button:disabled {
+      background: #333;
+      color: #666;
+      cursor: not-allowed;
+    }
+
+    .pagination button:disabled:hover {
+      background: #333;
+    }
+
+    .page-info {
+      color: #888;
+      font-size: 14px;
+    }
   </style>
 </head>
 <body>
@@ -427,6 +454,31 @@
     </div>
   </div>
 
+  <div class="pagination">
+    <div class="control-group">
+      <label for="page-size">Page Size</label>
+      <select id="page-size" onchange="changePageSize()">
+        <option value="25">25</option>
+        <option value="50" selected>50</option>
+        <option value="100">100</option>
+      </select>
+    </div>
+
+    <div class="control-group">
+      <label>&nbsp;</label>
+      <button id="prev-btn" onclick="loadPrevPage()" disabled>Previous</button>
+    </div>
+
+    <div class="control-group">
+      <label>&nbsp;</label>
+      <button id="next-btn" onclick="loadNextPage()" disabled>Next</button>
+    </div>
+
+    <div class="page-info" id="page-info">
+      Loading...
+    </div>
+  </div>
+
   <div id="loading" class="loading">
     Loading moderation data...
   </div>
@@ -441,6 +493,18 @@
   <script>
     let allVideos = [];
     const nostrContextCache = new Map(); // Cache Nostr contexts to avoid redundant fetches
+
+    // Pagination state
+    let paginationState = {
+      currentCursor: undefined,
+      nextCursor: undefined,
+      prevCursors: [], // Stack of previous page cursors
+      pageSize: 50,
+      listComplete: false,
+      currentPageStart: 0,
+      currentPageEnd: 0,
+      totalCount: 0
+    };
 
     /**
      * Nostr context is now stored in KV during moderation
@@ -512,7 +576,7 @@
       return metadata;
     }
 
-    async function loadVideos() {
+    async function loadVideos(cursor = undefined) {
       const loading = document.getElementById('loading');
       const empty = document.getElementById('empty');
       const grid = document.getElementById('video-grid');
@@ -522,7 +586,14 @@
       grid.innerHTML = '';
 
       try {
-        const response = await fetch('/admin/api/videos');
+        // Build API URL with pagination parameters
+        const params = new URLSearchParams();
+        params.set('limit', paginationState.pageSize.toString());
+        if (cursor) {
+          params.set('cursor', cursor);
+        }
+
+        const response = await fetch(`/admin/api/videos?${params}`);
 
         if (response.status === 401) {
           window.location.href = '/admin/login';
@@ -532,7 +603,23 @@
         const data = await response.json();
         allVideos = data.videos || [];
 
+        // Update pagination state
+        paginationState.currentCursor = cursor;
+        paginationState.nextCursor = data.cursor;
+        paginationState.listComplete = data.list_complete || false;
+
+        // Calculate approximate position
+        if (!cursor) {
+          // First page
+          paginationState.currentPageStart = 1;
+          paginationState.prevCursors = [];
+        } else {
+          paginationState.currentPageStart = paginationState.currentPageEnd + 1;
+        }
+        paginationState.currentPageEnd = paginationState.currentPageStart + allVideos.length - 1;
+
         updateStats();
+        updatePaginationControls();
         applyFilters();
 
       } catch (error) {
@@ -543,16 +630,75 @@
       }
     }
 
+    function updatePaginationControls() {
+      const prevBtn = document.getElementById('prev-btn');
+      const nextBtn = document.getElementById('next-btn');
+      const pageInfo = document.getElementById('page-info');
+
+      // Enable/disable previous button
+      prevBtn.disabled = paginationState.prevCursors.length === 0;
+
+      // Enable/disable next button
+      nextBtn.disabled = paginationState.listComplete;
+
+      // Update page info
+      const start = paginationState.currentPageStart;
+      const end = paginationState.currentPageEnd;
+      const hasMore = !paginationState.listComplete;
+
+      pageInfo.textContent = `Showing ${start}-${end}${hasMore ? '+' : ''}`;
+    }
+
+    function loadNextPage() {
+      if (!paginationState.nextCursor || paginationState.listComplete) {
+        return;
+      }
+
+      // Save current cursor to previous cursors stack
+      paginationState.prevCursors.push(paginationState.currentCursor);
+
+      loadVideos(paginationState.nextCursor);
+    }
+
+    function loadPrevPage() {
+      if (paginationState.prevCursors.length === 0) {
+        return;
+      }
+
+      // Pop the previous cursor from stack
+      const prevCursor = paginationState.prevCursors.pop();
+
+      // Adjust page numbers for going back
+      paginationState.currentPageEnd = paginationState.currentPageStart - 1;
+
+      loadVideos(prevCursor);
+    }
+
+    function changePageSize() {
+      const pageSizeSelect = document.getElementById('page-size');
+      paginationState.pageSize = parseInt(pageSizeSelect.value, 10);
+
+      // Reset to first page when changing page size
+      paginationState.prevCursors = [];
+      paginationState.currentPageStart = 0;
+      paginationState.currentPageEnd = 0;
+
+      loadVideos();
+    }
+
     function updateStats() {
       const total = allVideos.length;
       const safe = allVideos.filter(v => v.action === 'SAFE').length;
       const review = allVideos.filter(v => v.action === 'REVIEW').length;
       const quarantine = allVideos.filter(v => v.action === 'QUARANTINE').length;
 
-      document.getElementById('total-count').textContent = total;
-      document.getElementById('safe-count').textContent = safe;
-      document.getElementById('review-count').textContent = review;
-      document.getElementById('quarantine-count').textContent = quarantine;
+      // Show "+" if there are more pages
+      const suffix = !paginationState.listComplete ? '+' : '';
+
+      document.getElementById('total-count').textContent = paginationState.currentPageEnd + suffix;
+      document.getElementById('safe-count').textContent = safe + suffix;
+      document.getElementById('review-count').textContent = review + suffix;
+      document.getElementById('quarantine-count').textContent = quarantine + suffix;
     }
 
     function applyFilters() {
