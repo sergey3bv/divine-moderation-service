@@ -4,13 +4,195 @@
 import { validateQueueMessage } from './schemas/queue-message.mjs';
 import { moderateVideo } from './moderation/pipeline.mjs';
 import { publishToFaro } from './nostr/publisher.mjs';
+import { verifyPassword, createSession, requireAuth, getTokenFromCookie, deleteSession } from './admin/auth.mjs';
+import { fetchNostrEventBySha256, parseVideoEventMetadata } from './nostr/relay-client.mjs';
+import dashboardHTML from './admin/dashboard.html';
+import loginHTML from './admin/login.html';
 
 export default {
   /**
-   * HTTP handler for testing
+   * HTTP handler for testing and admin dashboard
    */
   async fetch(request, env) {
     const url = new URL(request.url);
+
+    // Admin dashboard routes
+    if (url.pathname === '/admin' || url.pathname === '/admin/') {
+      return Response.redirect(`${url.origin}/admin/dashboard`, 302);
+    }
+
+    if (url.pathname === '/admin/login') {
+      if (request.method === 'POST') {
+        // Handle login
+        const { password } = await request.json();
+        const isValid = await verifyPassword(password, env);
+
+        if (!isValid) {
+          return new Response(JSON.stringify({ success: false, error: 'Invalid password' }), {
+            status: 401,
+            headers: { 'Content-Type': 'application/json' }
+          });
+        }
+
+        // Create session
+        const token = await createSession(env);
+
+        return new Response(JSON.stringify({ success: true }), {
+          headers: {
+            'Content-Type': 'application/json',
+            'Set-Cookie': `admin_token=${token}; Path=/; HttpOnly; Secure; SameSite=Strict; Max-Age=86400`
+          }
+        });
+      }
+
+      // Show login page
+      return new Response(loginHTML, {
+        headers: { 'Content-Type': 'text/html' }
+      });
+    }
+
+    if (url.pathname === '/admin/logout') {
+      const cookieHeader = request.headers.get('Cookie');
+      const token = getTokenFromCookie(cookieHeader);
+      await deleteSession(token, env);
+
+      return new Response(JSON.stringify({ success: true }), {
+        headers: {
+          'Content-Type': 'application/json',
+          'Set-Cookie': 'admin_token=; Path=/; HttpOnly; Secure; SameSite=Strict; Max-Age=0'
+        }
+      });
+    }
+
+    if (url.pathname === '/admin/dashboard') {
+      // Check authentication
+      const authError = await requireAuth(request, env);
+      if (authError) {
+        return Response.redirect(`${url.origin}/admin/login`, 302);
+      }
+
+      return new Response(dashboardHTML, {
+        headers: { 'Content-Type': 'text/html' }
+      });
+    }
+
+    if (url.pathname === '/admin/api/videos') {
+      // Check authentication
+      const authError = await requireAuth(request, env);
+      if (authError) {
+        return authError;
+      }
+
+      // List all moderation results from KV
+      const videos = [];
+      const list = await env.MODERATION_KV.list({ prefix: 'moderation:' });
+
+      for (const key of list.keys) {
+        const data = await env.MODERATION_KV.get(key.name);
+        if (data) {
+          try {
+            videos.push(JSON.parse(data));
+          } catch (error) {
+            console.error(`Failed to parse moderation data for ${key.name}:`, error);
+          }
+        }
+      }
+
+      return new Response(JSON.stringify({ videos }), {
+        headers: { 'Content-Type': 'application/json' }
+      });
+    }
+
+    // Get Nostr event context for a video
+    if (url.pathname.startsWith('/admin/api/nostr-context/')) {
+      // Check authentication
+      const authError = await requireAuth(request, env);
+      if (authError) {
+        return authError;
+      }
+
+      const sha256 = url.pathname.split('/')[4];
+
+      try {
+        const event = await fetchNostrEventBySha256(sha256, ['wss://relay3.openvine.co']);
+
+        if (!event) {
+          return new Response(JSON.stringify({ found: false }), {
+            headers: { 'Content-Type': 'application/json' }
+          });
+        }
+
+        const metadata = parseVideoEventMetadata(event);
+
+        return new Response(JSON.stringify({ found: true, metadata }), {
+          headers: { 'Content-Type': 'application/json' }
+        });
+      } catch (error) {
+        console.error(`[ADMIN] Failed to fetch Nostr context for ${sha256}:`, error);
+        return new Response(JSON.stringify({ found: false, error: error.message }), {
+          status: 500,
+          headers: { 'Content-Type': 'application/json' }
+        });
+      }
+    }
+
+    // Admin video proxy - bypasses quarantine check for authenticated moderators
+    if (url.pathname.startsWith('/admin/video/')) {
+      // Check authentication
+      const authError = await requireAuth(request, env);
+      if (authError) {
+        return new Response('Unauthorized', { status: 401 });
+      }
+
+      // Extract sha256 from path
+      const sha256 = url.pathname.split('/')[3].replace('.mp4', '');
+
+      console.log(`[ADMIN] Fetching video: ${sha256}`);
+
+      // Try multiple R2 key formats (Blossom uses blobs/ prefix)
+      const possibleKeys = [
+        `blobs/${sha256}`,        // New SDK worker format
+        `videos/${sha256}.mp4`,   // Old format
+        `${sha256}.mp4`,
+        sha256
+      ];
+
+      let object = null;
+      let usedKey = null;
+
+      for (const key of possibleKeys) {
+        console.log(`[ADMIN] Trying R2 key: ${key}`);
+        object = await env.R2_VIDEOS.get(key);
+        if (object) {
+          usedKey = key;
+          console.log(`[ADMIN] Found video at: ${key}`);
+          break;
+        }
+      }
+
+      if (!object) {
+        console.error(`[ADMIN] Video not found in R2: ${sha256}`);
+        return new Response(JSON.stringify({
+          error: 'Video not found in R2',
+          sha256,
+          triedKeys: possibleKeys
+        }), {
+          status: 404,
+          headers: { 'Content-Type': 'application/json' }
+        });
+      }
+
+      console.log(`[ADMIN] Serving video from R2 key: ${usedKey}`);
+
+      return new Response(object.body, {
+        headers: {
+          'Content-Type': 'video/mp4',
+          'Cache-Control': 'private, no-cache',
+          'X-Admin-Bypass': 'true',
+          'X-R2-Key': usedKey
+        }
+      });
+    }
 
     // Test endpoint to manually trigger moderation
     if (url.pathname === '/test-moderate' && request.method === 'POST') {
@@ -50,18 +232,23 @@ export default {
     if (url.pathname.startsWith('/check-result/')) {
       const sha256 = url.pathname.split('/')[2];
       const result = await env.MODERATION_KV.get(`moderation:${sha256}`);
+      const ageRestricted = await env.MODERATION_KV.get(`age-restricted:${sha256}`);
+      const permanentBan = await env.MODERATION_KV.get(`permanent-ban:${sha256}`);
+      // Keep old quarantine key for backward compatibility
       const quarantine = await env.MODERATION_KV.get(`quarantine:${sha256}`);
 
       return new Response(JSON.stringify({
         sha256,
         moderation: result ? JSON.parse(result) : null,
-        quarantine: quarantine ? JSON.parse(quarantine) : null
+        age_restricted: ageRestricted ? JSON.parse(ageRestricted) : null,
+        permanent_ban: permanentBan ? JSON.parse(permanentBan) : null,
+        quarantine: quarantine ? JSON.parse(quarantine) : null  // Legacy
       }, null, 2), {
         headers: { 'Content-Type': 'application/json' }
       });
     }
 
-    return new Response('Divine Moderation Service\n\nEndpoints:\nPOST /test-moderate {"sha256":"..."}\nGET  /check-result/{sha256}', {
+    return new Response('Divine Moderation Service\n\nEndpoints:\nPOST /test-moderate {"sha256":"..."}\nGET  /check-result/{sha256}\nGET  /admin (password protected)', {
       headers: { 'Content-Type': 'text/plain' }
     });
   },
@@ -87,26 +274,37 @@ export default {
           continue;
         }
 
-        const { sha256, r2Key, uploadedBy, uploadedAt, metadata } = validation.data;
+        const { sha256, uploadedBy, uploadedAt, metadata } = validation.data;
         console.log(`[MODERATION] Step 2: Message validated for ${sha256}`);
 
-        console.log(`[MODERATION] Step 3: Starting analysis for ${sha256}`);
-        console.log(`[MODERATION] CDN URL will be: https://${env.CDN_DOMAIN}/${sha256}.mp4`);
+        // Check if already moderated (duplicate prevention)
+        console.log(`[MODERATION] Step 3: Checking for existing moderation result`);
+        const existingResult = await env.MODERATION_KV.get(`moderation:${sha256}`);
+
+        if (existingResult) {
+          console.log(`[MODERATION] ⚠️ SKIPPED ${sha256} - already moderated`);
+          const existing = JSON.parse(existingResult);
+          console.log(`[MODERATION] Previous result: action=${existing.action}, processedAt=${new Date(existing.processedAt).toISOString()}`);
+          message.ack();
+          continue;
+        }
+
+        console.log(`[MODERATION] Step 4: No existing result found, starting analysis for ${sha256}`);
+        console.log(`[MODERATION] Blossom blob URL: https://${env.CDN_DOMAIN}/blobs/${sha256}`);
 
         // Run moderation pipeline
         const result = await moderateVideo({
           sha256,
-          r2Key,
           uploadedBy,
           uploadedAt,
           metadata
         }, env);
 
-        console.log(`[MODERATION] Step 4: Analysis complete for ${sha256}`);
+        console.log(`[MODERATION] Step 5: Analysis complete for ${sha256}`);
         console.log(`[MODERATION] Result: action=${result.action}, severity=${result.severity}`);
         console.log(`[MODERATION] Scores: nudity=${result.scores.nudity}, violence=${result.scores.violence}, ai=${result.scores.ai_generated}`);
 
-        console.log(`[MODERATION] Step 5: Storing result in KV`);
+        console.log(`[MODERATION] Step 6: Storing result in KV`);
         // Store result in KV
         await env.MODERATION_KV.put(
           `moderation:${sha256}`,
@@ -119,12 +317,12 @@ export default {
             expirationTtl: 60 * 60 * 24 * 90 // 90 days
           }
         );
-        console.log(`[MODERATION] Step 6: KV write successful`);
+        console.log(`[MODERATION] Step 7: KV write successful`);
 
         // Handle based on severity
-        console.log(`[MODERATION] Step 7: Handling result (action=${result.action})`);
+        console.log(`[MODERATION] Step 8: Handling result (action=${result.action})`);
         await handleModerationResult(result, env);
-        console.log(`[MODERATION] Step 8: Result handled`);
+        console.log(`[MODERATION] Step 9: Result handled`);
 
         // Acknowledge successful processing
         message.ack();
@@ -193,35 +391,67 @@ async function handleModerationResult(result, env) {
       }
       break;
 
-    case 'QUARANTINE':
-      // Immediate quarantine - mark in KV (actual deletion handled by main service)
-      console.log(`[MODERATION] ${sha256} quarantined - writing quarantine flag to KV`);
+    case 'AGE_RESTRICTED':
+      // Age-restricted content - requires user consent but not banned
+      console.log(`[MODERATION] ${sha256} age-restricted (${result.category}) - writing restriction to KV`);
       await env.MODERATION_KV.put(
-        `quarantine:${sha256}`,
+        `age-restricted:${sha256}`,
         JSON.stringify({
+          category: result.category,
           reason,
           scores,
           timestamp: Date.now(),
           severity
         })
       );
-      console.log(`[MODERATION] ${sha256} - quarantine flag written`);
+      console.log(`[MODERATION] ${sha256} - age restriction written`);
 
       // Notify via Nostr
-      console.log(`[MODERATION] ${sha256} - publishing quarantine event to Nostr`);
       try {
         await publishToFaro({
-          type: 'quarantine',
+          type: 'age-restricted',
           sha256,
           cdnUrl,
+          category: result.category,
           scores,
           reason,
           severity
         }, env);
-        console.log(`[MODERATION] ${sha256} - Nostr quarantine event published`);
+        console.log(`[MODERATION] ${sha256} - Nostr age-restricted event published`);
       } catch (error) {
         console.error(`[MODERATION] ${sha256} - Nostr publish failed:`, error);
-        // Don't throw - we don't want Nostr failures to fail the whole moderation
+      }
+      break;
+
+    case 'PERMANENT_BAN':
+      // Permanent ban - never serve to anyone except admins
+      console.log(`[MODERATION] ${sha256} PERMANENTLY BANNED (${result.category}) - writing to KV`);
+      await env.MODERATION_KV.put(
+        `permanent-ban:${sha256}`,
+        JSON.stringify({
+          category: result.category,
+          reason,
+          scores,
+          timestamp: Date.now(),
+          severity
+        })
+      );
+      console.log(`[MODERATION] ${sha256} - permanent ban written`);
+
+      // High-priority notification
+      try {
+        await publishToFaro({
+          type: 'permanent-ban',
+          sha256,
+          cdnUrl,
+          category: result.category,
+          scores,
+          reason,
+          severity
+        }, env);
+        console.log(`[MODERATION] ${sha256} - Nostr permanent ban event published`);
+      } catch (error) {
+        console.error(`[MODERATION] ${sha256} - Nostr publish failed:`, error);
       }
       break;
 

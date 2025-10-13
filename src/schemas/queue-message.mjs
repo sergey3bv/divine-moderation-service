@@ -5,7 +5,6 @@
  * Queue message structure expected from main service
  * @typedef {Object} QueueMessage
  * @property {string} sha256 - SHA256 hash of the video (64 hex chars)
- * @property {string} r2Key - R2 object key for the video
  * @property {string} [uploadedBy] - Nostr pubkey of uploader (64 hex chars)
  * @property {number} uploadedAt - Unix timestamp in milliseconds
  * @property {Object} [metadata] - Optional metadata about the video
@@ -26,17 +25,12 @@ export function validateQueueMessage(message) {
     return { valid: false, error: 'Message must be an object' };
   }
 
-  // Validate sha256
+  // Validate sha256 (only required field - Blossom protocol uses SHA-256 as primary key)
   if (!message.sha256 || typeof message.sha256 !== 'string') {
     return { valid: false, error: 'sha256 is required and must be a string' };
   }
   if (!HEX_64_REGEX.test(message.sha256)) {
     return { valid: false, error: 'sha256 must be 64 hexadecimal characters' };
-  }
-
-  // Validate r2Key
-  if (!message.r2Key || typeof message.r2Key !== 'string') {
-    return { valid: false, error: 'r2Key is required and must be a string' };
   }
 
   // Validate uploadedBy if present

@@ -7,8 +7,10 @@ import { classifyModerationResult } from './classifier.mjs';
 describe('Moderation Classifier', () => {
   it('should classify low scores as SAFE', () => {
     const result = classifyModerationResult({
-      maxNudityScore: 0.1,
-      maxViolenceScore: 0.05
+      maxScores: {
+        nudity: 0.1,
+        violence: 0.05
+      }
     });
 
     expect(result.action).toBe('SAFE');
@@ -18,8 +20,10 @@ describe('Moderation Classifier', () => {
 
   it('should classify medium scores as REVIEW', () => {
     const result = classifyModerationResult({
-      maxNudityScore: 0.65,
-      maxViolenceScore: 0.3
+      maxScores: {
+        nudity: 0.65,
+        violence: 0.3
+      }
     });
 
     expect(result.action).toBe('REVIEW');
@@ -29,8 +33,10 @@ describe('Moderation Classifier', () => {
 
   it('should classify high nudity as AGE_RESTRICTED', () => {
     const result = classifyModerationResult({
-      maxNudityScore: 0.85,
-      maxViolenceScore: 0.1
+      maxScores: {
+        nudity: 0.85,
+        violence: 0.1
+      }
     });
 
     expect(result.action).toBe('AGE_RESTRICTED');
@@ -40,8 +46,10 @@ describe('Moderation Classifier', () => {
 
   it('should classify high violence as AGE_RESTRICTED', () => {
     const result = classifyModerationResult({
-      maxNudityScore: 0.1,
-      maxViolenceScore: 0.82
+      maxScores: {
+        nudity: 0.1,
+        violence: 0.82
+      }
     });
 
     expect(result.action).toBe('AGE_RESTRICTED');
@@ -59,8 +67,10 @@ describe('Moderation Classifier', () => {
 
     // Score that would normally be AGE_RESTRICTED
     const result = classifyModerationResult({
-      maxNudityScore: 0.85,
-      maxViolenceScore: 0.1
+      maxScores: {
+        nudity: 0.85,
+        violence: 0.1
+      }
     }, env);
 
     // With higher threshold, should only be REVIEW
@@ -69,8 +79,10 @@ describe('Moderation Classifier', () => {
 
   it('should use default thresholds when env not provided', () => {
     const result = classifyModerationResult({
-      maxNudityScore: 0.85,
-      maxViolenceScore: 0.1
+      maxScores: {
+        nudity: 0.85,
+        violence: 0.1
+      }
     });
 
     expect(result.action).toBe('AGE_RESTRICTED');
@@ -78,31 +90,36 @@ describe('Moderation Classifier', () => {
 
   it('should include all scores in result', () => {
     const result = classifyModerationResult({
-      maxNudityScore: 0.65,
-      maxViolenceScore: 0.45,
-      maxAiGeneratedScore: 0.2
+      maxScores: {
+        nudity: 0.65,
+        violence: 0.45,
+        ai_generated: 0.2
+      }
     });
 
-    // Old format automatically fills in all categories with 0
     expect(result.scores.nudity).toBe(0.65);
     expect(result.scores.violence).toBe(0.45);
     expect(result.scores.ai_generated).toBe(0.2);
     expect(result.scores.gore).toBe(0);
     expect(result.scores.weapon).toBe(0);
-    expect(Object.keys(result.scores).length).toBe(17);
+    expect(Object.keys(result.scores).length).toBe(18);
   });
 
   it('should identify primary concern', () => {
     const nudityResult = classifyModerationResult({
-      maxNudityScore: 0.85,
-      maxViolenceScore: 0.1
+      maxScores: {
+        nudity: 0.85,
+        violence: 0.1
+      }
     });
 
     expect(nudityResult.primaryConcern).toBe('nudity');
 
     const violenceResult = classifyModerationResult({
-      maxNudityScore: 0.1,
-      maxViolenceScore: 0.85
+      maxScores: {
+        nudity: 0.1,
+        violence: 0.85
+      }
     });
 
     expect(violenceResult.primaryConcern).toBe('violence');
@@ -114,9 +131,11 @@ describe('Moderation Classifier', () => {
     ];
 
     const result = classifyModerationResult({
-      maxNudityScore: 0.95,
-      maxViolenceScore: 0.1,
-      maxAiGeneratedScore: 0.1,
+      maxScores: {
+        nudity: 0.95,
+        violence: 0.1,
+        ai_generated: 0.1
+      },
       flaggedFrames
     });
 
@@ -125,9 +144,11 @@ describe('Moderation Classifier', () => {
 
   it('should classify high AI-generated score as AGE_RESTRICTED', () => {
     const result = classifyModerationResult({
-      maxNudityScore: 0.1,
-      maxViolenceScore: 0.1,
-      maxAiGeneratedScore: 0.85
+      maxScores: {
+        nudity: 0.1,
+        violence: 0.1,
+        ai_generated: 0.85
+      }
     });
 
     expect(result.action).toBe('AGE_RESTRICTED');
@@ -138,9 +159,11 @@ describe('Moderation Classifier', () => {
 
   it('should classify medium AI-generated score as REVIEW', () => {
     const result = classifyModerationResult({
-      maxNudityScore: 0.1,
-      maxViolenceScore: 0.1,
-      maxAiGeneratedScore: 0.65
+      maxScores: {
+        nudity: 0.1,
+        violence: 0.1,
+        ai_generated: 0.65
+      }
     });
 
     expect(result.action).toBe('REVIEW');
@@ -309,18 +332,6 @@ describe('Moderation Classifier', () => {
 
     expect(result.action).toBe('REVIEW');
     expect(result.severity).toBe('medium');
-  });
-
-  it('should maintain backward compatibility with old format', () => {
-    const result = classifyModerationResult({
-      maxNudityScore: 0.85,
-      maxViolenceScore: 0.3,
-      maxAiGeneratedScore: 0.2
-    });
-
-    expect(result.action).toBe('AGE_RESTRICTED');
-    expect(result.scores.nudity).toBe(0.85);
-    expect(result.scores.violence).toBe(0.3);
   });
 
   it('should include all scores in result for new format', () => {

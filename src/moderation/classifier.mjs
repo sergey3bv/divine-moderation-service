@@ -39,13 +39,9 @@ const INFORMATIONAL_CATEGORIES = ['medical', 'money', 'military', 'text_profanit
 export function classifyModerationResult(moderationData, env = {}) {
   const {
     maxScores = {},
-    maxNudityScore = 0,
-    maxViolenceScore = 0,
-    maxAiGeneratedScore = 0,
     flaggedFrames = []
   } = moderationData;
 
-  // Support both old and new format
   // Default values for all categories
   const defaultScores = {
     nudity: 0,
@@ -64,20 +60,13 @@ export function classifyModerationResult(moderationData, env = {}) {
     destruction: 0,
     military: 0,
     text_profanity: 0,
-    qr_unsafe: 0
+    qr_unsafe: 0,
+    deepfake: 0
   };
 
-  // Determine if using new format (has any maxScores) or old format
-  const usingNewFormat = Object.keys(maxScores).length > 0;
-
-  const scores = usingNewFormat ? {
+  const scores = {
     ...defaultScores,
     ...maxScores
-  } : {
-    ...defaultScores,
-    nudity: maxNudityScore,
-    violence: maxViolenceScore,
-    ai_generated: maxAiGeneratedScore
   };
 
   // Load thresholds from env or use defaults

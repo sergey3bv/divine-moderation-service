@@ -29,18 +29,44 @@ max_retries = 3
 # Environment variables
 [vars]
 MODERATION_ENABLED = "true"
-CDN_DOMAIN = "cdn.divine.video"  # Update with your CDN domain
+CDN_DOMAIN = "r2.divine.video"  # R2 public domain for Sightengine access
 
 # Thresholds for content classification (0.0 - 1.0)
-NSFW_THRESHOLD_HIGH = "0.8"           # Auto-quarantine
-NSFW_THRESHOLD_MEDIUM = "0.6"          # Flag for human review
-VIOLENCE_THRESHOLD_HIGH = "0.8"
-VIOLENCE_THRESHOLD_MEDIUM = "0.6"
-AI_GENERATED_THRESHOLD_HIGH = "0.8"    # Auto-quarantine AI content
-AI_GENERATED_THRESHOLD_MEDIUM = "0.6"   # Flag for human review
+# NSFW / Adult Content
+NSFW_THRESHOLD_HIGH = "0.8"           # Age-restricted
+NSFW_THRESHOLD_MEDIUM = "0.6"         # Human review
+
+# Violence
+VIOLENCE_THRESHOLD_HIGH = "0.8"       # Age-restricted
+VIOLENCE_THRESHOLD_MEDIUM = "0.6"     # Human review
+
+# Gore & Disgusting
+GORE_THRESHOLD_HIGH = "0.8"           # Age-restricted (PERMANENT_BAN if > 0.95)
+GORE_THRESHOLD_MEDIUM = "0.6"         # Human review
+
+# Hate Speech & Offensive Symbols (Nazi, KKK, etc)
+OFFENSIVE_THRESHOLD_HIGH = "0.8"      # PERMANENT_BAN
+OFFENSIVE_THRESHOLD_MEDIUM = "0.6"    # Human review
+
+# Weapons (Firearms, Knives, Threats)
+WEAPON_THRESHOLD_HIGH = "0.8"         # Age-restricted
+WEAPON_THRESHOLD_MEDIUM = "0.6"       # Human review
+
+# Recreational Drugs
+DRUG_THRESHOLD_HIGH = "0.8"           # Age-restricted
+DRUG_THRESHOLD_MEDIUM = "0.6"         # Human review
+
+# Self-Harm (CRITICAL - Lower thresholds)
+SELF_HARM_THRESHOLD_HIGH = "0.7"      # PERMANENT_BAN
+SELF_HARM_THRESHOLD_MEDIUM = "0.5"    # Human review
+
+# AI-Generated / Deepfake Detection
+AI_GENERATED_THRESHOLD_HIGH = "0.8"   # Age-restricted
+AI_GENERATED_THRESHOLD_MEDIUM = "0.6" # Human review
 
 # Secrets (set with: wrangler secret put <NAME>)
 # NOSTR_PRIVATE_KEY - for signing events to faro.nos.social
 # FARO_RELAY_URL - Nostr relay for faro moderation events
 # SIGHTENGINE_API_USER - (optional, for Phase 2)
 # SIGHTENGINE_API_SECRET - (optional, for Phase 2)
+# ADMIN_PASSWORD_HASH - SHA-256 hash of admin dashboard password
