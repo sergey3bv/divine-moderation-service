@@ -37,7 +37,7 @@ describe('Moderation Pipeline', () => {
     expect(result.scores).toBeDefined();
   });
 
-  it('should detect high nudity and return QUARANTINE', async () => {
+  it('should detect high nudity and return AGE_RESTRICTED', async () => {
     const mockFetch = vi.fn().mockResolvedValue({
       ok: true,
       json: async () => ({
@@ -64,7 +64,7 @@ describe('Moderation Pipeline', () => {
       uploadedAt: Date.now()
     }, env, mockFetch);
 
-    expect(result.action).toBe('QUARANTINE');
+    expect(result.action).toBe('AGE_RESTRICTED');
     expect(result.severity).toBe('high');
     expect(result.primaryConcern).toBe('nudity');
   });
