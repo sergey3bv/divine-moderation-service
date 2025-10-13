@@ -27,26 +27,26 @@ describe('Moderation Classifier', () => {
     expect(result.reason).toContain('review');
   });
 
-  it('should classify high nudity as QUARANTINE', () => {
+  it('should classify high nudity as AGE_RESTRICTED', () => {
     const result = classifyModerationResult({
       maxNudityScore: 0.85,
       maxViolenceScore: 0.1
     });
 
-    expect(result.action).toBe('QUARANTINE');
+    expect(result.action).toBe('AGE_RESTRICTED');
     expect(result.severity).toBe('high');
-    expect(result.reason).toContain('nudity');
+    expect(result.reason).toContain('Adult');
   });
 
-  it('should classify high violence as QUARANTINE', () => {
+  it('should classify high violence as AGE_RESTRICTED', () => {
     const result = classifyModerationResult({
       maxNudityScore: 0.1,
       maxViolenceScore: 0.82
     });
 
-    expect(result.action).toBe('QUARANTINE');
+    expect(result.action).toBe('AGE_RESTRICTED');
     expect(result.severity).toBe('high');
-    expect(result.reason).toContain('violence');
+    expect(result.reason).toContain('Violent');
   });
 
   it('should use configurable thresholds from env', () => {
@@ -57,7 +57,7 @@ describe('Moderation Classifier', () => {
       VIOLENCE_THRESHOLD_MEDIUM: '0.7'
     };
 
-    // Score that would normally be QUARANTINE
+    // Score that would normally be AGE_RESTRICTED
     const result = classifyModerationResult({
       maxNudityScore: 0.85,
       maxViolenceScore: 0.1
@@ -73,7 +73,7 @@ describe('Moderation Classifier', () => {
       maxViolenceScore: 0.1
     });
 
-    expect(result.action).toBe('QUARANTINE');
+    expect(result.action).toBe('AGE_RESTRICTED');
   });
 
   it('should include all scores in result', () => {
@@ -83,11 +83,13 @@ describe('Moderation Classifier', () => {
       maxAiGeneratedScore: 0.2
     });
 
-    expect(result.scores).toEqual({
-      nudity: 0.65,
-      violence: 0.45,
-      ai_generated: 0.2
-    });
+    // Old format automatically fills in all categories with 0
+    expect(result.scores.nudity).toBe(0.65);
+    expect(result.scores.violence).toBe(0.45);
+    expect(result.scores.ai_generated).toBe(0.2);
+    expect(result.scores.gore).toBe(0);
+    expect(result.scores.weapon).toBe(0);
+    expect(Object.keys(result.scores).length).toBe(17);
   });
 
   it('should identify primary concern', () => {
@@ -121,17 +123,17 @@ describe('Moderation Classifier', () => {
     expect(result.flaggedFrames).toEqual(flaggedFrames);
   });
 
-  it('should classify high AI-generated score as QUARANTINE', () => {
+  it('should classify high AI-generated score as AGE_RESTRICTED', () => {
     const result = classifyModerationResult({
       maxNudityScore: 0.1,
       maxViolenceScore: 0.1,
       maxAiGeneratedScore: 0.85
     });
 
-    expect(result.action).toBe('QUARANTINE');
+    expect(result.action).toBe('AGE_RESTRICTED');
     expect(result.severity).toBe('high');
     expect(result.primaryConcern).toBe('ai_generated');
-    expect(result.reason).toContain('ai-generated');
+    expect(result.reason).toContain('AI-generated');
   });
 
   it('should classify medium AI-generated score as REVIEW', () => {
@@ -144,5 +146,198 @@ describe('Moderation Classifier', () => {
     expect(result.action).toBe('REVIEW');
     expect(result.severity).toBe('medium');
     expect(result.primaryConcern).toBe('ai_generated');
+  });
+
+  // New comprehensive category tests
+  it('should classify self-harm as PERMANENT_BAN', () => {
+    const result = classifyModerationResult({
+      maxScores: {
+        self_harm: 0.75,
+        nudity: 0.1,
+        violence: 0.1
+      }
+    });
+
+    expect(result.action).toBe('PERMANENT_BAN');
+    expect(result.severity).toBe('critical');
+    expect(result.category).toBe('self_harm');
+  });
+
+  it('should classify hate speech as PERMANENT_BAN', () => {
+    const result = classifyModerationResult({
+      maxScores: {
+        offensive: 0.85,
+        nudity: 0.1,
+        violence: 0.1
+      }
+    });
+
+    expect(result.action).toBe('PERMANENT_BAN');
+    expect(result.severity).toBe('critical');
+    expect(result.category).toBe('hate_speech');
+  });
+
+  it('should classify extreme gore as PERMANENT_BAN', () => {
+    const result = classifyModerationResult({
+      maxScores: {
+        gore: 0.96,
+        nudity: 0.1,
+        violence: 0.1
+      }
+    });
+
+    expect(result.action).toBe('PERMANENT_BAN');
+    expect(result.severity).toBe('critical');
+    expect(result.category).toBe('extreme_gore');
+  });
+
+  it('should classify high gore (< 0.95) as AGE_RESTRICTED', () => {
+    const result = classifyModerationResult({
+      maxScores: {
+        gore: 0.85,
+        nudity: 0.1,
+        violence: 0.1
+      }
+    });
+
+    expect(result.action).toBe('AGE_RESTRICTED');
+    expect(result.severity).toBe('high');
+  });
+
+  it('should classify high weapon score as AGE_RESTRICTED', () => {
+    const result = classifyModerationResult({
+      maxScores: {
+        weapon: 0.85,
+        nudity: 0.1,
+        violence: 0.1
+      }
+    });
+
+    expect(result.action).toBe('AGE_RESTRICTED');
+    expect(result.severity).toBe('high');
+  });
+
+  it('should classify high drug score as AGE_RESTRICTED', () => {
+    const result = classifyModerationResult({
+      maxScores: {
+        recreational_drug: 0.85,
+        nudity: 0.1,
+        violence: 0.1
+      }
+    });
+
+    expect(result.action).toBe('AGE_RESTRICTED');
+    expect(result.severity).toBe('high');
+  });
+
+  it('should classify high deepfake score as AGE_RESTRICTED', () => {
+    const result = classifyModerationResult({
+      maxScores: {
+        deepfake: 0.85,
+        nudity: 0.1,
+        violence: 0.1
+      }
+    });
+
+    expect(result.action).toBe('AGE_RESTRICTED');
+    expect(result.severity).toBe('high');
+  });
+
+  it('should classify medium offensive score as REVIEW', () => {
+    const result = classifyModerationResult({
+      maxScores: {
+        offensive: 0.65,
+        nudity: 0.1,
+        violence: 0.1
+      }
+    });
+
+    expect(result.action).toBe('REVIEW');
+    expect(result.severity).toBe('medium');
+  });
+
+  it('should handle new maxScores format with all categories', () => {
+    const result = classifyModerationResult({
+      maxScores: {
+        nudity: 0.1,
+        violence: 0.2,
+        gore: 0.15,
+        offensive: 0.05,
+        weapon: 0.3,
+        self_harm: 0.05,
+        recreational_drug: 0.1,
+        alcohol: 0.2,
+        tobacco: 0.1,
+        medical: 0.05,
+        gambling: 0.1,
+        money: 0.05,
+        destruction: 0.15,
+        military: 0.1,
+        ai_generated: 0.2,
+        deepfake: 0.1,
+        text_profanity: 0.05,
+        qr_unsafe: 0.05
+      }
+    });
+
+    expect(result.action).toBe('SAFE');
+    expect(result.scores).toBeDefined();
+    expect(Object.keys(result.scores).length).toBeGreaterThan(10);
+  });
+
+  it('should prioritize self-harm over other high scores', () => {
+    const result = classifyModerationResult({
+      maxScores: {
+        self_harm: 0.75,
+        nudity: 0.9,  // Even though nudity is higher
+        violence: 0.85
+      }
+    });
+
+    expect(result.action).toBe('PERMANENT_BAN');
+    expect(result.category).toBe('self_harm');
+  });
+
+  it('should use informational category thresholds', () => {
+    const result = classifyModerationResult({
+      maxScores: {
+        medical: 0.65,  // Informational category
+        military: 0.6,
+        text_profanity: 0.7
+      }
+    });
+
+    expect(result.action).toBe('REVIEW');
+    expect(result.severity).toBe('medium');
+  });
+
+  it('should maintain backward compatibility with old format', () => {
+    const result = classifyModerationResult({
+      maxNudityScore: 0.85,
+      maxViolenceScore: 0.3,
+      maxAiGeneratedScore: 0.2
+    });
+
+    expect(result.action).toBe('AGE_RESTRICTED');
+    expect(result.scores.nudity).toBe(0.85);
+    expect(result.scores.violence).toBe(0.3);
+  });
+
+  it('should include all scores in result for new format', () => {
+    const result = classifyModerationResult({
+      maxScores: {
+        nudity: 0.2,
+        violence: 0.15,
+        gore: 0.1,
+        weapon: 0.3,
+        deepfake: 0.25
+      }
+    });
+
+    expect(result.scores.nudity).toBe(0.2);
+    expect(result.scores.violence).toBe(0.15);
+    expect(result.scores.gore).toBe(0.1);
+    expect(result.scores.weapon).toBe(0.3);
+    expect(result.scores.deepfake).toBe(0.25);
   });
 });
