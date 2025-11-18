@@ -8,3 +8,6 @@ coverage/
 .private-journal/
 example_vine_porn/
 old_files/
+.dev.vars
+.backfill-checkpoint.json
+old_files/
