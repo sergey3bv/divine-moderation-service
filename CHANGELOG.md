@@ -2,7 +2,61 @@
 
 All notable changes to the Divine Moderation Service will be documented in this file.
 
-## [Unreleased] - 2025-10-12
+## [Unreleased] - 2025-01-25
+
+### Added
+- **Per-category human verification** - Moderators can confirm or reject individual AI detections
+  - ✓ button confirms "Yes, this IS [category]"
+  - ✗ button rejects "No, this is NOT [category]"
+  - Verification status persisted in KV storage
+  - Visual badges show verification state (green confirmed, red rejected)
+
+- **NIP-32 label event publishing** (kind 1985) - Human-verified labels published to Nostr
+  - Confirmed categories: `["l", "ai-generated", "content-warning", {metadata}]`
+  - Rejected categories: `["l", "not-ai-generated", "content-warning", {metadata}]`
+  - Metadata includes confidence score, verification source, sha256
+  - Requires `MODERATOR_NSEC` and `NOSTR_RELAY_URL` secrets
+
+- **Auto-approve on rejection** - Videos auto-approved when all major flags rejected
+  - Major flags: nudity, violence, gore, ai_generated, deepfake, self_harm
+  - If moderator rejects all detected major flags → video becomes SAFE
+  - Shows "🎉 Auto-approved!" toast notification
+
+- **Provider badges** - Dashboard shows which AI analyzed each video
+  - HiveAI 🐝, SightEngine 👁️, BunnyCDN 🐰, or combined 🔗
+  - "📦 Legacy" badge for older videos without provider info
+
+- **Moderation history timeline** - Shows AI vs human decision history
+  - AI classification with timestamp and provider
+  - Human override with action change visualization (REVIEW → SAFE)
+
+- **AI detection alerts** - Prominent warnings for AI-generated/deepfake content
+  - Shows detected source (e.g., "Midjourney", "DALL-E")
+  - Frame analysis count and confidence level
+  - Yellow border for medium confidence, red for high
+
+- **NIP-85 tags preview** - Shows what Nostr labels will be generated
+  - Live preview of `["l", "label", "content-warning"]` tags
+  - Confirmed (green), rejected (strikethrough red), pending (gray)
+  - Summary count of confirmed/rejected/pending labels
+
+- **Request logging** - Enhanced observability with request IDs
+  - Unique request ID for each API call
+  - Timing information for performance monitoring
+  - Detailed logs for category verification workflow
+
+### Changed
+- Dashboard video cards now show verification buttons for each detected category
+- Scores section has "AI Detections" header with "✓ Confirm · ✗ Reject" hint
+- Toast notifications show label publish status and auto-approve feedback
+
+### Configuration
+- `MODERATOR_NSEC` - Nostr private key (hex) for signing label events
+- `NOSTR_RELAY_URL` - Relay for publishing NIP-32 labels (e.g., wss://relay.divine.video)
+
+---
+
+## [1.1.0] - 2025-10-12
 
 ### Added
 - **Admin bypass route** (`/admin/video/{sha256}.mp4`) - Authenticated admins can now view quarantined videos for review

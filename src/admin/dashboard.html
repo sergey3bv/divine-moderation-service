@@ -41,6 +41,18 @@
       padding: 15px 20px;
       border-radius: 8px;
       border: 1px solid #333;
+      cursor: pointer;
+      transition: background 0.2s, border-color 0.2s;
+    }
+
+    .stat-card:hover {
+      background: #222;
+      border-color: #555;
+    }
+
+    .stat-card.active {
+      border-color: #2563eb;
+      background: #1a2332;
     }
 
     .stat-label {
@@ -116,7 +128,7 @@
       border: 1px solid #333;
       border-radius: 8px;
       overflow: hidden;
-      transition: transform 0.2s, border-color 0.2s;
+      transition: transform 0.3s, border-color 0.2s, opacity 0.3s;
     }
 
     .video-card:hover {
@@ -213,11 +225,53 @@
       display: flex;
       justify-content: space-between;
       align-items: center;
+      padding: 4px;
+      border-radius: 4px;
+      transition: background 0.2s;
+    }
+
+    .score-row.clickable {
+      cursor: pointer;
+    }
+
+    .score-row.clickable:hover {
+      background: #222;
     }
 
     .score-label {
       font-size: 13px;
       color: #888;
+    }
+
+    .subcategories {
+      margin-left: 20px;
+      margin-top: 5px;
+      padding: 8px;
+      background: #0a0a0a;
+      border-left: 2px solid #333;
+      border-radius: 4px;
+      display: none;
+    }
+
+    .subcategories.visible {
+      display: block;
+    }
+
+    .subcategory-row {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      font-size: 11px;
+      padding: 3px 0;
+    }
+
+    .subcategory-label {
+      color: #666;
+    }
+
+    .subcategory-value {
+      color: #999;
+      font-weight: 500;
     }
 
     .score-bar {
@@ -235,16 +289,16 @@
       transition: width 0.3s;
     }
 
-    .score-fill.nudity {
-      background: linear-gradient(90deg, #f59e0b, #dc2626);
+    .score-fill.high {
+      background: linear-gradient(90deg, #dc2626, #991b1b);
     }
 
-    .score-fill.violence {
-      background: linear-gradient(90deg, #ef4444, #991b1b);
+    .score-fill.medium {
+      background: linear-gradient(90deg, #f59e0b, #ea580c);
     }
 
-    .score-fill.ai {
-      background: linear-gradient(90deg, #3b82f6, #8b5cf6);
+    .score-fill.low {
+      background: linear-gradient(90deg, #3b82f6, #2563eb);
     }
 
     .score-value {
@@ -253,6 +307,25 @@
       font-weight: 600;
       min-width: 40px;
       text-align: right;
+    }
+
+    .score-row.hidden {
+      display: none;
+    }
+
+    .show-all-scores {
+      margin-top: 5px;
+      background: transparent;
+      color: #888;
+      font-size: 11px;
+      padding: 4px 8px;
+      border: 1px solid #333;
+    }
+
+    .show-all-scores:hover {
+      color: #e0e0e0;
+      border-color: #555;
+      background: transparent;
     }
 
     .reason {
@@ -391,28 +464,698 @@
       color: #888;
       font-size: 14px;
     }
+
+    /* Action buttons */
+    .action-buttons {
+      display: flex;
+      gap: 8px;
+      margin-top: 10px;
+      padding-top: 10px;
+      border-top: 1px solid #333;
+    }
+
+    .action-btn {
+      flex: 1;
+      padding: 6px 10px;
+      font-size: 12px;
+      border-radius: 4px;
+      cursor: pointer;
+      border: 1px solid #333;
+      background: #1a1a1a;
+      color: #e0e0e0;
+      transition: all 0.2s;
+    }
+
+    .action-btn:hover {
+      border-color: #555;
+      background: #222;
+    }
+
+    .action-btn.approve {
+      border-color: #166534;
+      color: #22c55e;
+    }
+
+    .action-btn.approve:hover {
+      background: #0f3a23;
+    }
+
+    .action-btn.age-restrict {
+      border-color: #b45309;
+      color: #f59e0b;
+    }
+
+    .action-btn.age-restrict:hover {
+      background: #3a2205;
+    }
+
+    .action-btn.ban {
+      border-color: #991b1b;
+      color: #ef4444;
+    }
+
+    .action-btn.ban:hover {
+      background: #3a0a0a;
+    }
+
+    .action-btn.edit {
+      border-color: #2563eb;
+      color: #60a5fa;
+    }
+
+    .action-btn.edit:hover {
+      background: #1a2a4a;
+    }
+
+    /* Override badge */
+    .override-badge {
+      background: #7c3aed;
+      color: #fff;
+      padding: 2px 6px;
+      border-radius: 3px;
+      font-size: 10px;
+      margin-left: 8px;
+    }
+
+    /* Provider badge */
+    .provider-badge {
+      background: #1e40af;
+      color: #93c5fd;
+      padding: 4px 8px;
+      border-radius: 4px;
+      font-size: 10px;
+      font-weight: 600;
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+      display: inline-flex;
+      align-items: center;
+      gap: 4px;
+    }
+
+    .provider-badge.hiveai {
+      background: linear-gradient(135deg, #f59e0b, #d97706);
+      color: #fff;
+    }
+
+    .provider-badge.sightengine {
+      background: linear-gradient(135deg, #3b82f6, #1d4ed8);
+      color: #fff;
+    }
+
+    .provider-badge.bunnycdn {
+      background: linear-gradient(135deg, #f97316, #ea580c);
+      color: #fff;
+    }
+
+    .provider-badge.combined {
+      background: linear-gradient(135deg, #8b5cf6, #6366f1);
+      color: #fff;
+    }
+
+    /* Moderation history section */
+    .moderation-history {
+      margin-top: 10px;
+      padding: 12px;
+      background: #0a0a0a;
+      border: 1px solid #333;
+      border-radius: 6px;
+    }
+
+    .moderation-history-title {
+      font-size: 11px;
+      font-weight: 600;
+      color: #888;
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+      margin-bottom: 10px;
+      display: flex;
+      align-items: center;
+      gap: 6px;
+    }
+
+    .history-event {
+      display: flex;
+      gap: 10px;
+      padding: 8px 0;
+      border-bottom: 1px solid #222;
+    }
+
+    .history-event:last-child {
+      border-bottom: none;
+      padding-bottom: 0;
+    }
+
+    .history-icon {
+      flex-shrink: 0;
+      width: 24px;
+      height: 24px;
+      border-radius: 50%;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 12px;
+    }
+
+    .history-icon.ai {
+      background: #1e40af;
+      color: #93c5fd;
+    }
+
+    .history-icon.human {
+      background: #7c3aed;
+      color: #ddd6fe;
+    }
+
+    .history-details {
+      flex: 1;
+      min-width: 0;
+    }
+
+    .history-action {
+      font-size: 12px;
+      color: #e0e0e0;
+      margin-bottom: 2px;
+    }
+
+    .history-meta {
+      font-size: 10px;
+      color: #666;
+    }
+
+    .history-change {
+      display: inline-flex;
+      align-items: center;
+      gap: 4px;
+      font-size: 11px;
+      margin-top: 4px;
+    }
+
+    .history-change .old-action {
+      color: #666;
+      text-decoration: line-through;
+    }
+
+    .history-change .arrow {
+      color: #888;
+    }
+
+    .history-change .new-action {
+      color: #22c55e;
+      font-weight: 600;
+    }
+
+    /* AI detection highlight */
+    .ai-detection-alert {
+      margin-top: 10px;
+      padding: 10px 12px;
+      background: linear-gradient(135deg, #1a1005, #0a0a0a);
+      border: 1px solid #b45309;
+      border-radius: 6px;
+    }
+
+    .ai-detection-alert.high {
+      border-color: #ef4444;
+      background: linear-gradient(135deg, #1a0505, #0a0a0a);
+    }
+
+    .ai-detection-title {
+      font-size: 12px;
+      font-weight: 600;
+      color: #f59e0b;
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      margin-bottom: 6px;
+    }
+
+    .ai-detection-alert.high .ai-detection-title {
+      color: #ef4444;
+    }
+
+    .ai-detection-details {
+      font-size: 11px;
+      color: #888;
+    }
+
+    .ai-detection-source {
+      font-weight: 600;
+      color: #e0e0e0;
+    }
+
+    /* Per-category verification controls */
+    .category-verification {
+      display: flex;
+      gap: 4px;
+      margin-left: auto;
+      flex-shrink: 0;
+    }
+
+    .verify-btn {
+      width: 24px;
+      height: 24px;
+      border-radius: 4px;
+      border: 1px solid #333;
+      background: #1a1a1a;
+      color: #666;
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 12px;
+      transition: all 0.2s;
+      padding: 0;
+    }
+
+    .verify-btn:hover {
+      border-color: #555;
+      background: #222;
+    }
+
+    .verify-btn.confirm:hover {
+      border-color: #22c55e;
+      background: #0a2a1a;
+      color: #22c55e;
+    }
+
+    .verify-btn.reject:hover {
+      border-color: #ef4444;
+      background: #2a0a0a;
+      color: #ef4444;
+    }
+
+    .verify-btn.confirmed {
+      border-color: #22c55e;
+      background: #166534;
+      color: #dcfce7;
+    }
+
+    .verify-btn.rejected {
+      border-color: #ef4444;
+      background: #991b1b;
+      color: #fee2e2;
+    }
+
+    /* Verified badge shown inline */
+    .verified-badge {
+      font-size: 10px;
+      padding: 2px 6px;
+      border-radius: 3px;
+      margin-left: 6px;
+      font-weight: 600;
+    }
+
+    .verified-badge.confirmed {
+      background: #166534;
+      color: #dcfce7;
+    }
+
+    .verified-badge.rejected {
+      background: #991b1b;
+      color: #fee2e2;
+    }
+
+    /* Score row with verification */
+    .score-row {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      padding: 4px;
+      border-radius: 4px;
+      transition: background 0.2s;
+      gap: 8px;
+    }
+
+    .score-row .score-label {
+      flex: 0 0 auto;
+      min-width: 80px;
+    }
+
+    .score-row .score-bar {
+      flex: 1;
+      min-width: 60px;
+    }
+
+    .score-row .score-value {
+      flex: 0 0 auto;
+    }
+
+    /* NIP-85 tags preview */
+    .nip85-tags {
+      margin-top: 10px;
+      padding: 10px;
+      background: #0a0a0a;
+      border: 1px solid #333;
+      border-radius: 6px;
+    }
+
+    .nip85-tags-title {
+      font-size: 11px;
+      font-weight: 600;
+      color: #888;
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+      margin-bottom: 8px;
+    }
+
+    .nip85-tag {
+      display: inline-flex;
+      align-items: center;
+      gap: 4px;
+      padding: 4px 8px;
+      margin: 2px;
+      background: #1a1a1a;
+      border: 1px solid #333;
+      border-radius: 4px;
+      font-size: 11px;
+      font-family: monospace;
+    }
+
+    .nip85-tag.confirmed {
+      border-color: #22c55e;
+      background: #0a2a1a;
+      color: #22c55e;
+    }
+
+    .nip85-tag.rejected {
+      border-color: #ef4444;
+      background: #2a0a0a;
+      color: #ef4444;
+      text-decoration: line-through;
+    }
+
+    /* Modal */
+    .modal {
+      display: none;
+      position: fixed;
+      top: 0;
+      left: 0;
+      width: 100%;
+      height: 100%;
+      background: rgba(0, 0, 0, 0.8);
+      z-index: 1000;
+      overflow-y: auto;
+    }
+
+    .modal.show {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      padding: 20px;
+    }
+
+    .modal-content {
+      background: #1a1a1a;
+      border: 1px solid #333;
+      border-radius: 8px;
+      max-width: 600px;
+      width: 100%;
+      max-height: 90vh;
+      overflow-y: auto;
+    }
+
+    .modal-header {
+      padding: 20px;
+      border-bottom: 1px solid #333;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+    }
+
+    .modal-header h2 {
+      font-size: 20px;
+      color: #fff;
+    }
+
+    .modal-close {
+      background: none;
+      border: none;
+      color: #888;
+      font-size: 24px;
+      cursor: pointer;
+      padding: 0;
+      width: 30px;
+      height: 30px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
+
+    .modal-close:hover {
+      color: #fff;
+      background: #333;
+      border-radius: 4px;
+    }
+
+    .modal-body {
+      padding: 20px;
+    }
+
+    .modal-footer {
+      padding: 20px;
+      border-top: 1px solid #333;
+      display: flex;
+      gap: 10px;
+      justify-content: flex-end;
+    }
+
+    .form-group {
+      margin-bottom: 20px;
+    }
+
+    .form-group label {
+      display: block;
+      margin-bottom: 8px;
+      color: #e0e0e0;
+      font-size: 14px;
+      text-transform: none;
+      letter-spacing: normal;
+    }
+
+    .form-group textarea {
+      width: 100%;
+      min-height: 80px;
+      background: #0a0a0a;
+      border: 1px solid #333;
+      border-radius: 4px;
+      padding: 10px;
+      color: #e0e0e0;
+      font-size: 14px;
+      resize: vertical;
+    }
+
+    .score-slider {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      margin-bottom: 15px;
+    }
+
+    .score-slider label {
+      flex: 0 0 120px;
+      margin: 0;
+      font-size: 13px;
+    }
+
+    .score-slider input[type="range"] {
+      flex: 1;
+      height: 6px;
+      background: #333;
+      border-radius: 3px;
+      outline: none;
+      padding: 0;
+    }
+
+    .score-slider input[type="range"]::-webkit-slider-thumb {
+      width: 16px;
+      height: 16px;
+      background: #2563eb;
+      border-radius: 50%;
+      cursor: pointer;
+    }
+
+    .score-slider input[type="range"]::-moz-range-thumb {
+      width: 16px;
+      height: 16px;
+      background: #2563eb;
+      border-radius: 50%;
+      cursor: pointer;
+      border: none;
+    }
+
+    .score-slider-value {
+      flex: 0 0 50px;
+      text-align: right;
+      font-size: 13px;
+      color: #e0e0e0;
+      font-weight: 600;
+    }
+
+    .btn-cancel {
+      background: #333;
+      color: #e0e0e0;
+    }
+
+    .btn-cancel:hover {
+      background: #444;
+    }
+
+    .btn-save {
+      background: #2563eb;
+      color: white;
+    }
+
+    .btn-save:hover {
+      background: #1d4ed8;
+    }
+
+    /* Checkbox for bulk selection */
+    .video-select {
+      position: absolute;
+      top: 10px;
+      left: 10px;
+      width: 20px;
+      height: 20px;
+      cursor: pointer;
+      z-index: 10;
+    }
+
+    /* Toast notifications */
+    .toast {
+      position: fixed;
+      top: 20px;
+      right: 20px;
+      background: #1a1a1a;
+      border: 1px solid #333;
+      border-radius: 8px;
+      padding: 15px 20px;
+      display: flex;
+      align-items: center;
+      gap: 15px;
+      z-index: 2000;
+      box-shadow: 0 4px 12px rgba(0, 0, 0, 0.5);
+      animation: slideIn 0.3s ease-out;
+      max-width: 400px;
+    }
+
+    @keyframes slideIn {
+      from {
+        transform: translateX(120%);
+        opacity: 0;
+      }
+      to {
+        transform: translateX(0);
+        opacity: 1;
+      }
+    }
+
+    @keyframes slideOut {
+      from {
+        transform: translateX(0);
+        opacity: 1;
+      }
+      to {
+        transform: translateX(120%);
+        opacity: 0;
+      }
+    }
+
+    .toast.hiding {
+      animation: slideOut 0.3s ease-out forwards;
+    }
+
+    .toast-message {
+      flex: 1;
+      color: #e0e0e0;
+      font-size: 14px;
+    }
+
+    .toast-undo {
+      background: #2563eb;
+      color: white;
+      border: none;
+      padding: 6px 12px;
+      border-radius: 4px;
+      cursor: pointer;
+      font-size: 13px;
+      white-space: nowrap;
+    }
+
+    .toast-undo:hover {
+      background: #1d4ed8;
+    }
+
+    .toast-close {
+      background: none;
+      border: none;
+      color: #666;
+      font-size: 20px;
+      cursor: pointer;
+      padding: 0;
+      width: 24px;
+      height: 24px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
+
+    .toast-close:hover {
+      color: #e0e0e0;
+    }
+
+    /* Card update animations */
+    @keyframes cardUpdate {
+      0% {
+        transform: scale(1);
+      }
+      50% {
+        transform: scale(0.98);
+      }
+      100% {
+        transform: scale(1);
+      }
+    }
+
+    .video-card.updating {
+      animation: cardUpdate 0.3s ease-out;
+    }
   </style>
 </head>
 <body>
   <div class="header">
     <div style="display: flex; justify-content: space-between; align-items: center;">
       <h1>Divine Moderation Dashboard</h1>
-      <button class="logout" onclick="logout()">Logout</button>
+      <div style="display: flex; gap: 10px; align-items: center;">
+        <div id="undo-container" style="display: none; background: #1a1a1a; border: 1px solid #333; border-radius: 6px; padding: 8px 12px; display: none; align-items: center; gap: 10px;">
+          <span id="undo-message" style="color: #e0e0e0; font-size: 13px;"></span>
+          <button id="undo-btn" onclick="undoLastAction()" style="background: #2563eb; color: white; border: none; padding: 6px 12px; border-radius: 4px; cursor: pointer; font-size: 13px;">Undo</button>
+          <button onclick="clearUndo()" style="background: none; border: none; color: #666; cursor: pointer; font-size: 18px;">×</button>
+        </div>
+        <button class="btn-primary" onclick="window.location.href='/admin/review'" style="background: #2563eb; color: white; border: none; padding: 8px 16px; border-radius: 6px; cursor: pointer;">Quick Review</button>
+        <button class="logout" onclick="logout()">Logout</button>
+      </div>
     </div>
     <div class="stats" id="stats">
-      <div class="stat-card">
-        <div class="stat-label">Total Videos</div>
+      <div class="stat-card active" onclick="filterByAction('TRIAGE')" data-action="TRIAGE" style="border-color: #8b5cf6; background: linear-gradient(135deg, #1a1428, #0a0a0a); border-width: 2px;">
+        <div class="stat-label" style="color: #a78bfa;">⚡ NEEDS TRIAGE</div>
+        <div class="stat-value" id="triage-count" style="color: #8b5cf6; font-size: 28px;">-</div>
+      </div>
+      <div class="stat-card" onclick="filterByAction('FLAGGED')" data-action="FLAGGED" style="border-color: #ef4444; background: linear-gradient(135deg, #1a0a0a, #0a0a0a); border-width: 2px;">
+        <div class="stat-label" style="color: #fca5a5;">🚩 AI FLAGGED</div>
+        <div class="stat-value" id="flagged-count" style="color: #ef4444; font-size: 28px;">-</div>
+      </div>
+      <div class="stat-card" onclick="filterByAction('all')" data-action="all">
+        <div class="stat-label">Total Moderated</div>
         <div class="stat-value" id="total-count">-</div>
       </div>
-      <div class="stat-card">
+      <div class="stat-card" onclick="filterByAction('SAFE')" data-action="SAFE">
         <div class="stat-label">Safe</div>
         <div class="stat-value" id="safe-count" style="color: #22c55e;">-</div>
       </div>
-      <div class="stat-card">
+      <div class="stat-card" onclick="filterByAction('REVIEW')" data-action="REVIEW">
         <div class="stat-label">Review</div>
         <div class="stat-value" id="review-count" style="color: #f59e0b;">-</div>
       </div>
-      <div class="stat-card">
+      <div class="stat-card" onclick="filterByAction('QUARANTINE')" data-action="QUARANTINE">
         <div class="stat-label">Quarantined</div>
         <div class="stat-value" id="quarantine-count" style="color: #ef4444;">-</div>
       </div>
@@ -424,22 +1167,55 @@
       <label for="sort-by">Sort By</label>
       <select id="sort-by" onchange="applyFilters()">
         <option value="timestamp">Recent First</option>
-        <option value="nudity-high">Nudity (High → Low)</option>
-        <option value="nudity-low">Nudity (Low → High)</option>
-        <option value="violence-high">Violence (High → Low)</option>
-        <option value="violence-low">Violence (Low → High)</option>
-        <option value="ai-high">AI-Generated (High → Low)</option>
-        <option value="ai-low">AI-Generated (Low → High)</option>
+        <option value="highest-score">Highest Score (Any Category)</option>
+        <option value="nudity">Nudity</option>
+        <option value="violence">Violence</option>
+        <option value="gore">Gore</option>
+        <option value="offensive">Offensive</option>
+        <option value="weapon">Weapon</option>
+        <option value="self_harm">Self-Harm</option>
+        <option value="recreational_drug">Drugs</option>
+        <option value="alcohol">Alcohol</option>
+        <option value="tobacco">Tobacco</option>
+        <option value="ai_generated">AI-Generated</option>
+        <option value="deepfake">Deepfake</option>
       </select>
     </div>
 
     <div class="control-group">
       <label for="filter-action">Filter by Action</label>
       <select id="filter-action" onchange="applyFilters()">
-        <option value="all">All</option>
+        <option value="all">All Moderated</option>
+        <option value="TRIAGE">Triage (New)</option>
+        <option value="FLAGGED">🚩 AI Flagged</option>
         <option value="SAFE">Safe</option>
         <option value="REVIEW">Review</option>
         <option value="QUARANTINE">Quarantined</option>
+      </select>
+    </div>
+
+    <div class="control-group">
+      <label for="filter-category">Filter by Category</label>
+      <select id="filter-category" onchange="applyFilters()">
+        <option value="all">All Categories</option>
+        <option value="nudity">Nudity</option>
+        <option value="violence">Violence</option>
+        <option value="gore">Gore</option>
+        <option value="offensive">Offensive</option>
+        <option value="weapon">Weapon</option>
+        <option value="self_harm">Self-Harm</option>
+        <option value="recreational_drug">Drugs</option>
+        <option value="alcohol">Alcohol</option>
+        <option value="tobacco">Tobacco</option>
+        <option value="medical">Medical</option>
+        <option value="gambling">Gambling</option>
+        <option value="money">Money</option>
+        <option value="destruction">Destruction</option>
+        <option value="military">Military</option>
+        <option value="text_profanity">Text Profanity</option>
+        <option value="qr_unsafe">QR Code</option>
+        <option value="ai_generated">AI-Generated</option>
+        <option value="deepfake">Deepfake</option>
       </select>
     </div>
 
@@ -505,6 +1281,10 @@
       currentPageEnd: 0,
       totalCount: 0
     };
+
+    // Undo stack
+    const undoStack = [];
+    let currentToast = null;
 
     /**
      * Nostr context is now stored in KV during moderation
@@ -576,7 +1356,7 @@
       return metadata;
     }
 
-    async function loadVideos(cursor = undefined) {
+    async function loadVideos(cursor = undefined, actionFilter = null) {
       const loading = document.getElementById('loading');
       const empty = document.getElementById('empty');
       const grid = document.getElementById('video-grid');
@@ -586,11 +1366,16 @@
       grid.innerHTML = '';
 
       try {
-        // Build API URL with pagination parameters
+        // Build API URL with pagination and filter parameters
         const params = new URLSearchParams();
         params.set('limit', paginationState.pageSize.toString());
         if (cursor) {
           params.set('cursor', cursor);
+        }
+        // Pass action filter to server for efficient querying
+        const currentFilter = actionFilter || document.getElementById('filter-action').value;
+        if (currentFilter && currentFilter !== 'all' && currentFilter !== 'TRIAGE') {
+          params.set('action', currentFilter);
         }
 
         const response = await fetch(`/admin/api/videos?${params}`);
@@ -684,43 +1469,394 @@
       paginationState.currentPageEnd = 0;
 
       loadVideos();
+      loadRealStats();
+    }
+
+    let triageCount = 0;
+    let triageVideos = [];
+    let triageOffset = 0;
+    let triageLoading = false;
+    let triageHasMore = true;
+    let realStats = null;
+
+    // Load REAL stats from the stats API - actual totals, not page counts
+    async function loadRealStats() {
+      try {
+        const response = await fetch('/admin/api/stats');
+        if (response.ok) {
+          realStats = await response.json();
+
+          // Calculate flagged count (REVIEW + AGE_RESTRICTED + PERMANENT_BAN)
+          const reviewCount = realStats.breakdown?.review || 0;
+          const ageRestrictedCount = realStats.breakdown?.ageRestricted || 0;
+          const permanentBanCount = realStats.breakdown?.permanentBan || 0;
+          const flaggedCount = reviewCount + ageRestrictedCount + permanentBanCount;
+
+          // Update all stat cards with REAL numbers
+          document.getElementById('triage-count').textContent = (realStats.untriaged || 0).toLocaleString();
+          document.getElementById('flagged-count').textContent = flaggedCount.toLocaleString();
+          document.getElementById('total-count').textContent = (realStats.totalModerated || 0).toLocaleString();
+          document.getElementById('safe-count').textContent = (realStats.breakdown?.safe || 0).toLocaleString();
+          document.getElementById('review-count').textContent = reviewCount.toLocaleString();
+          document.getElementById('quarantine-count').textContent =
+            (ageRestrictedCount + permanentBanCount).toLocaleString();
+
+          triageCount = realStats.untriaged || 0;
+
+          console.log('[STATS] Real stats loaded:', realStats);
+        }
+      } catch (error) {
+        console.error('Failed to load real stats:', error);
+      }
+    }
+
+    async function loadTriageVideos(append = false) {
+      const loading = document.getElementById('loading');
+      const empty = document.getElementById('empty');
+      const grid = document.getElementById('video-grid');
+
+      if (triageLoading) return;
+      triageLoading = true;
+
+      if (!append) {
+        triageOffset = 0;
+        triageHasMore = true;
+        triageVideos = [];
+        loading.style.display = 'block';
+        empty.style.display = 'none';
+        grid.innerHTML = '';
+      }
+
+      try {
+        const response = await fetch('/admin/api/untriaged?limit=50&offset=' + triageOffset);
+        if (response.status === 401) {
+          window.location.href = '/admin/login';
+          return;
+        }
+
+        const data = await response.json();
+        const newVideos = data.videos || [];
+        triageVideos = append ? [...triageVideos, ...newVideos] : newVideos;
+        triageHasMore = data.hasMore;
+        triageOffset += newVideos.length;
+
+        if (triageVideos.length === 0) {
+          grid.innerHTML = '';
+          empty.style.display = 'block';
+          empty.innerHTML = '<p>🎉 All caught up! No videos to triage.</p>';
+        } else {
+          empty.style.display = 'none';
+          if (append) {
+            // Append new cards
+            grid.innerHTML += newVideos.map(video => createTriageCard(video)).join('');
+          } else {
+            grid.innerHTML = triageVideos.map(video => createTriageCard(video)).join('');
+          }
+          // Set up pause handlers for newly rendered videos
+          setTimeout(setupVideoPauseHandlers, 100);
+        }
+      } catch (error) {
+        console.error('Failed to load triage videos:', error);
+        if (!append) {
+          loading.innerHTML = 'Error loading videos: ' + error.message;
+        }
+      } finally {
+        loading.style.display = 'none';
+        triageLoading = false;
+      }
+    }
+
+    // Infinite scroll handler
+    function setupTriageInfiniteScroll() {
+      window.addEventListener('scroll', () => {
+        const filterAction = document.getElementById('filter-action').value;
+        if (filterAction !== 'TRIAGE') return;
+        if (triageLoading || !triageHasMore) return;
+
+        const scrollY = window.scrollY;
+        const windowHeight = window.innerHeight;
+        const docHeight = document.documentElement.scrollHeight;
+
+        // Load more when within 200px of bottom
+        if (scrollY + windowHeight >= docHeight - 200) {
+          loadTriageVideos(true);
+        }
+      });
+    }
+    setupTriageInfiniteScroll();
+
+    function createTriageCard(video) {
+      const { sha256, cdnUrl, thumbnailUrl, receivedAt, nostrContext } = video;
+
+      // Format timestamp
+      const timestamp = receivedAt ? new Date(receivedAt).toLocaleString() : 'Unknown';
+      const timeAgo = receivedAt ? getTimeAgo(new Date(receivedAt)) : '';
+
+      // Use CDN URL for video
+      const videoUrl = cdnUrl || 'https://cdn.divine.video/' + sha256 + '.mp4';
+      const thumbUrl = thumbnailUrl || '';
+
+      // Link to divine.video with sha256 (will resolve to event)
+      const divineUrl = 'https://divine.video/video/' + sha256;
+
+      // Nostr context display
+      const author = nostrContext?.author || null;
+      const title = nostrContext?.title || null;
+      const content = nostrContext?.content || null;
+      const client = nostrContext?.client || null;
+      const pubkey = nostrContext?.pubkey || null;
+
+      // Build metadata line
+      let metaLine = '';
+      if (author) {
+        metaLine += '<span style="color: #a78bfa;">👤 ' + escapeHtml(author) + '</span>';
+      } else if (pubkey) {
+        metaLine += '<span style="color: #666;">👤 ' + pubkey + '</span>';
+      }
+      if (client) {
+        metaLine += (metaLine ? ' · ' : '') + '<span style="color: #666;">' + escapeHtml(client) + '</span>';
+      }
+
+      // Build description (title or content)
+      let description = '';
+      if (title && title.trim()) {
+        description = escapeHtml(title.substring(0, 100));
+      } else if (content && content.trim()) {
+        description = escapeHtml(content.substring(0, 100));
+      }
+
+      return '<div class="video-card triage" style="border-color: #8b5cf6;">' +
+        '<div class="video-thumbnail">' +
+          '<video src="' + videoUrl + '" muted loop preload="metadata" poster="' + thumbUrl + '" controls onmouseenter="this.play()" onmouseleave="this.pause(); this.currentTime=0;"></video>' +
+          '<div class="video-overlay">' +
+            '<span class="badge" style="background: #8b5cf6;">NEW</span>' +
+          '</div>' +
+        '</div>' +
+        '<div class="video-info">' +
+          '<div style="font-size: 11px; color: #666; margin-bottom: 6px; font-family: monospace;">' +
+            '<span title="' + sha256 + '">' + sha256.substring(0, 16) + '...</span> ' +
+            '<button onclick="copyToClipboard(\'' + videoUrl + '\'); event.stopPropagation();" style="background: #333; color: #888; border: none; padding: 2px 6px; border-radius: 3px; cursor: pointer; font-size: 10px;" title="Copy video URL">📋 URL</button>' +
+          '</div>' +
+          (metaLine ? '<div style="font-size: 12px; margin-bottom: 6px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">' + metaLine + '</div>' : '') +
+          (description ? '<div style="font-size: 13px; color: #ccc; margin-bottom: 8px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">' + description + '</div>' : '') +
+          '<div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px;">' +
+            '<span style="font-size: 12px; color: #666;">' + (timeAgo ? '📅 ' + timeAgo : '') + '</span>' +
+            '<a href="' + divineUrl + '" target="_blank" style="color: #8b5cf6; font-size: 12px; text-decoration: none;">View →</a>' +
+          '</div>' +
+          '<div style="display: flex; gap: 8px;">' +
+            '<button onclick="sendToHive(\'' + sha256 + '\', this)" style="background: linear-gradient(135deg, #8b5cf6, #6366f1); color: white; border: none; padding: 10px 12px; border-radius: 6px; cursor: pointer; flex: 1; font-weight: 600; font-size: 13px;">' +
+              '🐝 Hive AI' +
+            '</button>' +
+            '<button onclick="markAsSafe(\'' + sha256 + '\', this)" style="background: linear-gradient(135deg, #22c55e, #16a34a); color: white; border: none; padding: 10px 12px; border-radius: 6px; cursor: pointer; flex: 1; font-weight: 600; font-size: 13px;">' +
+              '✅ Safe' +
+            '</button>' +
+          '</div>' +
+        '</div>' +
+      '</div>';
+    }
+
+    // Helper to escape HTML
+    function escapeHtml(str) {
+      if (!str) return '';
+      return str.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+    }
+
+    function formatFileSize(bytes) {
+      if (!bytes) return '';
+      if (bytes < 1024) return bytes + ' B';
+      if (bytes < 1024 * 1024) return (bytes / 1024).toFixed(1) + ' KB';
+      return (bytes / (1024 * 1024)).toFixed(1) + ' MB';
+    }
+
+    function formatDuration(seconds) {
+      if (!seconds) return '';
+      const mins = Math.floor(seconds / 60);
+      const secs = Math.floor(seconds % 60);
+      return mins + ':' + secs.toString().padStart(2, '0');
+    }
+
+    function getTimeAgo(date) {
+      const now = new Date();
+      const diffMs = now - date;
+      const diffMins = Math.floor(diffMs / 60000);
+      const diffHours = Math.floor(diffMs / 3600000);
+      const diffDays = Math.floor(diffMs / 86400000);
+
+      if (diffMins < 1) return 'just now';
+      if (diffMins < 60) return diffMins + 'm ago';
+      if (diffHours < 24) return diffHours + 'h ago';
+      if (diffDays < 7) return diffDays + 'd ago';
+      return date.toLocaleDateString();
+    }
+
+    async function sendToHive(sha256, button) {
+      const originalText = button.innerHTML;
+      button.innerHTML = '⏳ Sending...';
+      button.disabled = true;
+
+      try {
+        const response = await fetch('/admin/api/queue-moderation', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ sha256 })
+        });
+
+        if (response.ok) {
+          button.innerHTML = '✅ Sent!';
+          button.style.background = '#22c55e';
+          // Remove this card after a moment
+          setTimeout(() => {
+            const card = button.closest('.video-card');
+            if (card) {
+              card.style.opacity = '0';
+              card.style.transform = 'scale(0.9)';
+              setTimeout(() => card.remove(), 300);
+            }
+            loadRealStats();
+          }, 1000);
+        } else {
+          const data = await response.json();
+          button.innerHTML = '❌ Failed';
+          button.style.background = '#ef4444';
+          setTimeout(() => {
+            button.innerHTML = originalText;
+            button.style.background = 'linear-gradient(135deg, #8b5cf6, #6366f1)';
+            button.disabled = false;
+          }, 2000);
+        }
+      } catch (error) {
+        button.innerHTML = '❌ Error';
+        button.style.background = '#ef4444';
+        setTimeout(() => {
+          button.innerHTML = originalText;
+          button.style.background = 'linear-gradient(135deg, #8b5cf6, #6366f1)';
+          button.disabled = false;
+        }, 2000);
+      }
+    }
+
+    // Mark video as safe (manual override for triage)
+    async function markAsSafe(sha256, button) {
+      const originalText = button.innerHTML;
+      button.innerHTML = '⏳...';
+      button.disabled = true;
+
+      try {
+        const response = await fetch('/admin/api/moderate/' + sha256, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ action: 'SAFE' })
+        });
+
+        if (response.ok) {
+          button.innerHTML = '✅ Done!';
+          // Remove this card after a moment
+          setTimeout(() => {
+            const card = button.closest('.video-card');
+            if (card) {
+              card.style.opacity = '0';
+              card.style.transform = 'scale(0.9)';
+              setTimeout(() => card.remove(), 300);
+            }
+            loadRealStats();
+          }, 500);
+        } else {
+          button.innerHTML = '❌ Failed';
+          setTimeout(() => {
+            button.innerHTML = originalText;
+            button.disabled = false;
+          }, 2000);
+        }
+      } catch (error) {
+        button.innerHTML = '❌ Error';
+        setTimeout(() => {
+          button.innerHTML = originalText;
+          button.disabled = false;
+        }, 2000);
+      }
     }
 
     function updateStats() {
-      const total = allVideos.length;
-      const safe = allVideos.filter(v => v.action === 'SAFE').length;
-      const review = allVideos.filter(v => v.action === 'REVIEW').length;
-      const quarantine = allVideos.filter(v => v.action === 'QUARANTINE').length;
-
-      // Show "+" if there are more pages
-      const suffix = !paginationState.listComplete ? '+' : '';
-
-      document.getElementById('total-count').textContent = paginationState.currentPageEnd + suffix;
-      document.getElementById('safe-count').textContent = safe + suffix;
-      document.getElementById('review-count').textContent = review + suffix;
-      document.getElementById('quarantine-count').textContent = quarantine + suffix;
+      // Real stats are loaded from /admin/api/stats via loadRealStats()
+      // This function only updates the active state visual indicator
+      updateActiveStatCard();
     }
+
+    function filterByAction(action) {
+      const filterSelect = document.getElementById('filter-action');
+      filterSelect.value = action;
+
+      // Handle TRIAGE separately - different data source
+      if (action === 'TRIAGE') {
+        loadTriageVideos();
+        updateActiveStatCard();
+        return;
+      }
+
+      // Reset pagination when changing filters
+      paginationState.prevCursors = [];
+      paginationState.currentPageStart = 0;
+      paginationState.currentPageEnd = 0;
+
+      // Reload videos from server with filter
+      loadVideos(undefined, action);
+      updateActiveStatCard();
+    }
+
+    function updateActiveStatCard() {
+      const filterAction = document.getElementById('filter-action').value;
+      const statCards = document.querySelectorAll('.stat-card');
+
+      statCards.forEach(card => {
+        const cardAction = card.getAttribute('data-action');
+        if (cardAction === filterAction) {
+          card.classList.add('active');
+        } else {
+          card.classList.remove('active');
+        }
+      });
+    }
+
+    // Track last filter to detect changes
+    let lastActionFilter = 'TRIAGE';
 
     function applyFilters() {
       const sortBy = document.getElementById('sort-by').value;
       const filterAction = document.getElementById('filter-action').value;
+      const filterCategory = document.getElementById('filter-category').value;
       const minScore = parseFloat(document.getElementById('min-score').value) || 0;
+
+      // If action filter changed, reload from server
+      if (filterAction !== lastActionFilter) {
+        lastActionFilter = filterAction;
+
+        if (filterAction === 'TRIAGE') {
+          loadTriageVideos();
+          updateActiveStatCard();
+          return;
+        }
+
+        // Reset pagination and reload
+        paginationState.prevCursors = [];
+        paginationState.currentPageStart = 0;
+        paginationState.currentPageEnd = 0;
+        loadVideos(undefined, filterAction);
+        updateActiveStatCard();
+        return;
+      }
 
       let filtered = [...allVideos];
 
-      // Filter by action
-      if (filterAction !== 'all') {
-        filtered = filtered.filter(v => v.action === filterAction);
-      }
-
-      // Filter by minimum score (any category)
-      if (minScore > 0) {
+      // Filter by category
+      if (filterCategory !== 'all') {
         filtered = filtered.filter(v => {
-          const maxScore = Math.max(
-            v.scores.nudity || 0,
-            v.scores.violence || 0,
-            v.scores.ai_generated || 0
-          );
+          const score = v.scores[filterCategory] || 0;
+          return score >= minScore;
+        });
+      } else if (minScore > 0) {
+        // Filter by minimum score (any category)
+        filtered = filtered.filter(v => {
+          const maxScore = getMaxScore(v.scores);
           return maxScore >= minScore;
         });
       }
@@ -730,24 +1866,23 @@
         switch (sortBy) {
           case 'timestamp':
             return (b.processedAt || 0) - (a.processedAt || 0);
-          case 'nudity-high':
-            return (b.scores.nudity || 0) - (a.scores.nudity || 0);
-          case 'nudity-low':
-            return (a.scores.nudity || 0) - (b.scores.nudity || 0);
-          case 'violence-high':
-            return (b.scores.violence || 0) - (a.scores.violence || 0);
-          case 'violence-low':
-            return (a.scores.violence || 0) - (b.scores.violence || 0);
-          case 'ai-high':
-            return (b.scores.ai_generated || 0) - (a.scores.ai_generated || 0);
-          case 'ai-low':
-            return (a.scores.ai_generated || 0) - (b.scores.ai_generated || 0);
+          case 'highest-score':
+            return getMaxScore(b.scores) - getMaxScore(a.scores);
           default:
-            return 0;
+            // Sort by specific category
+            return (b.scores[sortBy] || 0) - (a.scores[sortBy] || 0);
         }
       });
 
+      // Update active state on stat cards
+      updateActiveStatCard();
+
       renderVideos(filtered);
+    }
+
+    function getMaxScore(scores) {
+      if (!scores) return 0;
+      return Math.max(...Object.values(scores).filter(v => typeof v === 'number'));
     }
 
     async function renderVideos(videos) {
@@ -847,7 +1982,7 @@
     }
 
     function createVideoCard(video) {
-      const { sha256, cdnUrl, action, scores, reason, processedAt } = video;
+      const { sha256, cdnUrl, action, scores, reason, processedAt, detailedCategories, provider, manualOverride, overriddenAt, previousAction } = video;
 
       const timestamp = processedAt
         ? new Date(processedAt).toLocaleString()
@@ -858,44 +1993,126 @@
       // Use admin bypass route for video URL - allows moderators to see quarantined content
       const adminVideoUrl = `/admin/video/${sha256}.mp4`;
 
+      // Get all scores, sort by value (highest first), and filter out zero scores
+      const scoreEntries = Object.entries(scores || {})
+        .filter(([key, value]) => typeof value === 'number' && value > 0)
+        .sort(([, a], [, b]) => b - a);
+
+      // Get category verifications (human-confirmed/rejected status)
+      const categoryVerifications = video.categoryVerifications || {};
+
+      // Generate score rows - show top 3 by default, hide rest
+      const scoreRows = scoreEntries.map(([key, value], index) => {
+        const label = formatCategoryName(key);
+        const percentage = (value * 100).toFixed(1);
+        const colorClass = value >= 0.7 ? 'high' : value >= 0.4 ? 'medium' : 'low';
+        const hiddenClass = index >= 3 ? 'hidden' : '';
+
+        // Get verification status for this category
+        const verification = categoryVerifications[key];
+        const isConfirmed = verification === 'confirmed';
+        const isRejected = verification === 'rejected';
+
+        // Generate subcategories HTML if available
+        const subcats = detailedCategories && detailedCategories[key] ? detailedCategories[key] : {};
+        const subcatEntries = Object.entries(subcats).filter(([, score]) => score > 0);
+        const hasSubcategories = subcatEntries.length > 0;
+
+        const subcategoriesHtml = hasSubcategories ? `
+          <div class="subcategories" id="subcats-${sha256}-${key}">
+            ${subcatEntries.map(([subkey, subscore]) => `
+              <div class="subcategory-row">
+                <span class="subcategory-label">${formatSubcategoryName(subkey)}</span>
+                <span class="subcategory-value">${(subscore * 100).toFixed(1)}%</span>
+              </div>
+            `).join('')}
+          </div>
+        ` : '';
+
+        // Verification badge
+        const verifiedBadgeHtml = isConfirmed
+          ? '<span class="verified-badge confirmed">✓ Verified</span>'
+          : isRejected
+            ? `<span class="verified-badge rejected">✗ Not ${label}</span>`
+            : '';
+
+        // Verification buttons
+        const verifyButtonsHtml = `
+          <div class="category-verification" data-sha256="${sha256}" data-category="${key}">
+            <button class="verify-btn confirm ${isConfirmed ? 'confirmed' : ''}"
+                    onclick="event.stopPropagation(); verifyCategory('${sha256}', '${key}', 'confirmed')"
+                    title="Confirm: Yes, this is ${label}">✓</button>
+            <button class="verify-btn reject ${isRejected ? 'rejected' : ''}"
+                    onclick="event.stopPropagation(); verifyCategory('${sha256}', '${key}', 'rejected')"
+                    title="Reject: No, this is NOT ${label}">✗</button>
+          </div>
+        `;
+
+        // Only make the label clickable if there are subcategories
+        const clickableClass = hasSubcategories ? 'clickable' : '';
+        const onclickAttr = hasSubcategories ? `onclick="toggleSubcategories('${sha256}', '${key}')"` : '';
+
+        return `
+          <div class="score-row ${hiddenClass}" data-video-id="${sha256}">
+            <span class="score-label ${clickableClass}" ${onclickAttr}>${label}${verifiedBadgeHtml}</span>
+            <div class="score-bar">
+              <div class="score-fill ${colorClass}" style="width: ${percentage}%"></div>
+            </div>
+            <span class="score-value">${percentage}%</span>
+            ${verifyButtonsHtml}
+          </div>
+          ${subcategoriesHtml}
+        `;
+      }).join('');
+
+      // Generate NIP-85 tags preview based on verified categories
+      const nip85TagsHTML = createNIP85TagsPreview(scores, categoryVerifications);
+
+      // Add "show all" button if there are more than 3 scores
+      const showAllButton = scoreEntries.length > 3
+        ? `<button class="show-all-scores" onclick="event.stopPropagation(); toggleAllScores('${sha256}', this)">Show all ${scoreEntries.length} scores</button>`
+        : '';
+
+      // Generate provider badge
+      const providerBadgeHTML = createProviderBadge(provider);
+
+      // Generate AI detection alert for ai_generated or deepfake
+      const aiDetectionHTML = createAIDetectionAlert(scores, detailedCategories);
+
+      // Generate moderation history
+      const historyHTML = createModerationHistory(video);
+
       return `
         <div class="video-card ${actionClass}">
           <div class="video-thumbnail">
-            <video src="${adminVideoUrl}" controls loop preload="metadata"></video>
+            <video src="${adminVideoUrl}" muted loop preload="auto" controls onmouseenter="this.play()" onmouseleave="this.pause()"></video>
             <div class="video-overlay">
               <span class="badge ${actionClass}">${action}</span>
+              ${manualOverride ? '<span class="badge override-badge">MANUAL</span>' : ''}
             </div>
           </div>
           <div class="video-info">
-            <div class="video-hash" title="Click to copy full hash" onclick="copyToClipboard('${sha256}')">${sha256}</div>
-
-            <div class="scores">
-              <div class="score-row">
-                <span class="score-label">Nudity</span>
-                <div class="score-bar">
-                  <div class="score-fill nudity" style="width: ${(scores.nudity * 100).toFixed(1)}%"></div>
-                </div>
-                <span class="score-value">${(scores.nudity * 100).toFixed(1)}%</span>
-              </div>
-
-              <div class="score-row">
-                <span class="score-label">Violence</span>
-                <div class="score-bar">
-                  <div class="score-fill violence" style="width: ${(scores.violence * 100).toFixed(1)}%"></div>
-                </div>
-                <span class="score-value">${(scores.violence * 100).toFixed(1)}%</span>
-              </div>
-
-              <div class="score-row">
-                <span class="score-label">AI</span>
-                <div class="score-bar">
-                  <div class="score-fill ai" style="width: ${(scores.ai_generated * 100).toFixed(1)}%"></div>
-                </div>
-                <span class="score-value">${(scores.ai_generated * 100).toFixed(1)}%</span>
-              </div>
+            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px;">
+              <div class="video-hash" title="Click to copy full hash" onclick="copyToClipboard('${sha256}')" style="margin-bottom: 0;">${sha256.substring(0, 16)}...</div>
+              ${providerBadgeHTML}
             </div>
 
-            ${reason ? `<div class="reason">${reason}</div>` : ''}
+            ${aiDetectionHTML}
+
+            <div class="scores">
+              <div style="font-size: 10px; color: #666; margin-bottom: 8px; display: flex; justify-content: space-between; align-items: center;">
+                <span>AI Detections</span>
+                <span title="✓ = Confirm AI is correct&#10;✗ = Reject (NOT this category)">✓ Confirm · ✗ Reject</span>
+              </div>
+              ${scoreRows || '<div style="color: #666; font-size: 12px;">All scores: 0%</div>'}
+              ${showAllButton}
+            </div>
+
+            ${reason ? `<div class="reason">${escapeHtml(reason)}</div>` : ''}
+
+            ${nip85TagsHTML}
+
+            ${historyHTML}
 
             <div class="nostr-context" id="nostr-${sha256}">
               <div class="nostr-loading">Loading context...</div>
@@ -907,10 +2124,378 @@
               </a>
             </div>
 
+            <div class="action-buttons">
+              <button class="action-btn approve" onclick="quickAction('${sha256}', 'SAFE')">Approve</button>
+              <button class="action-btn age-restrict" onclick="quickAction('${sha256}', 'AGE_RESTRICTED')">Age-Restrict</button>
+              <button class="action-btn ban" onclick="quickAction('${sha256}', 'PERMANENT_BAN')">Ban</button>
+              <button class="action-btn edit" onclick="openEditModal('${sha256}')">Edit Scores</button>
+            </div>
+
             <div class="timestamp">${timestamp}</div>
           </div>
         </div>
       `;
+    }
+
+    function createProviderBadge(provider) {
+      if (!provider) {
+        return '<span class="provider-badge" style="background: #333; color: #888;">📦 Legacy</span>';
+      }
+
+      const providerLower = provider.toLowerCase();
+      let badgeClass = '';
+      let icon = '🤖';
+      let displayName = provider;
+
+      if (providerLower.includes('+') || providerLower.includes('bunnycdn') && providerLower.includes('hive')) {
+        badgeClass = 'combined';
+        icon = '🔗';
+        displayName = provider.replace(/\+/g, ' + ');
+      } else if (providerLower.includes('hive')) {
+        badgeClass = 'hiveai';
+        icon = '🐝';
+        displayName = 'HiveAI';
+      } else if (providerLower.includes('sightengine')) {
+        badgeClass = 'sightengine';
+        icon = '👁️';
+        displayName = 'SightEngine';
+      } else if (providerLower.includes('bunny')) {
+        badgeClass = 'bunnycdn';
+        icon = '🐰';
+        displayName = 'BunnyCDN';
+      }
+
+      return `<span class="provider-badge ${badgeClass}">${icon} ${displayName}</span>`;
+    }
+
+    function createAIDetectionAlert(scores, detailedCategories) {
+      if (!scores) return '';
+
+      const aiScore = scores.ai_generated || 0;
+      const deepfakeScore = scores.deepfake || 0;
+
+      // Only show if significant detection
+      if (aiScore < 0.3 && deepfakeScore < 0.3) return '';
+
+      const isHighConfidence = aiScore >= 0.7 || deepfakeScore >= 0.7;
+      const alertClass = isHighConfidence ? 'high' : '';
+
+      let title = '';
+      let details = [];
+
+      if (deepfakeScore >= 0.3) {
+        title = '⚠️ Potential Deepfake Detected';
+        details.push(`Deepfake confidence: ${(deepfakeScore * 100).toFixed(0)}%`);
+      } else if (aiScore >= 0.3) {
+        title = '🤖 AI-Generated Content Detected';
+        details.push(`AI confidence: ${(aiScore * 100).toFixed(0)}%`);
+      }
+
+      // Add source detection if available
+      if (detailedCategories?.ai_generated?.detectedSource) {
+        const source = detailedCategories.ai_generated.detectedSource
+          .replace(/_/g, ' ')
+          .replace(/\b\w/g, l => l.toUpperCase());
+        details.push(`Source: <span class="ai-detection-source">${source}</span>`);
+      }
+
+      if (detailedCategories?.ai_generated?.framesDetected) {
+        details.push(`Frames analyzed: ${detailedCategories.ai_generated.framesDetected}/${detailedCategories.ai_generated.totalFrames || '?'}`);
+      }
+
+      return `
+        <div class="ai-detection-alert ${alertClass}">
+          <div class="ai-detection-title">${title}</div>
+          <div class="ai-detection-details">${details.join(' · ')}</div>
+        </div>
+      `;
+    }
+
+    function createModerationHistory(video) {
+      const { processedAt, provider, manualOverride, overriddenAt, previousAction, action, reason } = video;
+
+      const events = [];
+
+      // AI moderation event
+      if (processedAt) {
+        const aiAction = manualOverride ? previousAction : action;
+        events.push({
+          type: 'ai',
+          icon: '🤖',
+          title: `AI classified as ${aiAction || 'UNKNOWN'}`,
+          meta: `${formatProviderName(provider)} · ${formatTimeAgo(new Date(processedAt))}`,
+          timestamp: processedAt
+        });
+      }
+
+      // Human override event
+      if (manualOverride && overriddenAt) {
+        events.push({
+          type: 'human',
+          icon: '👤',
+          title: 'Human moderator review',
+          meta: formatTimeAgo(new Date(overriddenAt)),
+          change: previousAction && previousAction !== action ? { from: previousAction, to: action } : null,
+          reason: reason,
+          timestamp: overriddenAt
+        });
+      }
+
+      if (events.length === 0) return '';
+
+      // Sort by timestamp descending (most recent first)
+      events.sort((a, b) => b.timestamp - a.timestamp);
+
+      const eventsHTML = events.map(event => {
+        const changeHTML = event.change
+          ? `<div class="history-change">
+               <span class="old-action">${event.change.from}</span>
+               <span class="arrow">→</span>
+               <span class="new-action">${event.change.to}</span>
+             </div>`
+          : '';
+
+        return `
+          <div class="history-event">
+            <div class="history-icon ${event.type}">${event.icon}</div>
+            <div class="history-details">
+              <div class="history-action">${event.title}</div>
+              <div class="history-meta">${event.meta}</div>
+              ${changeHTML}
+            </div>
+          </div>
+        `;
+      }).join('');
+
+      return `
+        <div class="moderation-history">
+          <div class="moderation-history-title">📋 Moderation History</div>
+          ${eventsHTML}
+        </div>
+      `;
+    }
+
+    function formatProviderName(provider) {
+      if (!provider) return 'Unknown';
+      if (provider.includes('+')) return provider.split('+').map(p => formatProviderName(p.trim())).join(' + ');
+      const lower = provider.toLowerCase();
+      if (lower.includes('hive')) return 'HiveAI';
+      if (lower.includes('sightengine')) return 'SightEngine';
+      if (lower.includes('bunny')) return 'BunnyCDN';
+      return provider;
+    }
+
+    function formatTimeAgo(date) {
+      const now = new Date();
+      const diffMs = now - date;
+      const diffMins = Math.floor(diffMs / 60000);
+      const diffHours = Math.floor(diffMs / 3600000);
+      const diffDays = Math.floor(diffMs / 86400000);
+
+      if (diffMins < 1) return 'just now';
+      if (diffMins < 60) return `${diffMins}m ago`;
+      if (diffHours < 24) return `${diffHours}h ago`;
+      if (diffDays < 7) return `${diffDays}d ago`;
+      return date.toLocaleDateString();
+    }
+
+    // NIP-85 content-warning tag mapping
+    const NIP85_TAG_MAP = {
+      'nudity': { namespace: 'content-warning', label: 'nudity' },
+      'violence': { namespace: 'content-warning', label: 'violence' },
+      'gore': { namespace: 'content-warning', label: 'gore' },
+      'offensive': { namespace: 'content-warning', label: 'offensive' },
+      'weapon': { namespace: 'content-warning', label: 'weapons' },
+      'self_harm': { namespace: 'content-warning', label: 'self-harm' },
+      'recreational_drug': { namespace: 'content-warning', label: 'drugs' },
+      'alcohol': { namespace: 'content-warning', label: 'alcohol' },
+      'tobacco': { namespace: 'content-warning', label: 'tobacco' },
+      'ai_generated': { namespace: 'content-warning', label: 'ai-generated' },
+      'deepfake': { namespace: 'content-warning', label: 'deepfake' },
+      'medical': { namespace: 'content-warning', label: 'medical' },
+      'gambling': { namespace: 'content-warning', label: 'gambling' }
+    };
+
+    function createNIP85TagsPreview(scores, categoryVerifications) {
+      if (!scores) return '';
+
+      const tags = [];
+
+      // For each score above threshold, generate a tag
+      for (const [category, score] of Object.entries(scores)) {
+        if (typeof score !== 'number' || score < 0.3) continue;
+
+        const tagInfo = NIP85_TAG_MAP[category];
+        if (!tagInfo) continue;
+
+        const verification = categoryVerifications ? categoryVerifications[category] : null;
+        const isConfirmed = verification === 'confirmed';
+        const isRejected = verification === 'rejected';
+
+        // Only include tag if confirmed or not yet verified (AI detected)
+        // Rejected tags are shown with strikethrough
+        tags.push({
+          category,
+          namespace: tagInfo.namespace,
+          label: tagInfo.label,
+          score,
+          isConfirmed,
+          isRejected,
+          status: isConfirmed ? 'confirmed' : isRejected ? 'rejected' : 'pending'
+        });
+      }
+
+      if (tags.length === 0) return '';
+
+      const tagsHTML = tags.map(tag => {
+        const statusClass = tag.isConfirmed ? 'confirmed' : tag.isRejected ? 'rejected' : '';
+        const statusIcon = tag.isConfirmed ? '✓' : tag.isRejected ? '✗' : '?';
+        return `
+          <span class="nip85-tag ${statusClass}" title="${tag.isRejected ? 'Rejected: Will NOT be tagged' : tag.isConfirmed ? 'Confirmed: Will be tagged' : 'Pending verification'}">
+            ${statusIcon} ["l", "${tag.label}", "${tag.namespace}"]
+          </span>
+        `;
+      }).join('');
+
+      // Count confirmed tags for summary
+      const confirmedCount = tags.filter(t => t.isConfirmed).length;
+      const rejectedCount = tags.filter(t => t.isRejected).length;
+      const pendingCount = tags.filter(t => !t.isConfirmed && !t.isRejected).length;
+
+      return `
+        <div class="nip85-tags" id="nip85-tags-${tags[0]?.category ? scores : ''}">
+          <div class="nip85-tags-title">
+            🏷️ Content Labels (NIP-85)
+            <span style="font-weight: normal; margin-left: 10px;">
+              ${confirmedCount > 0 ? `<span style="color: #22c55e;">${confirmedCount} confirmed</span>` : ''}
+              ${rejectedCount > 0 ? `<span style="color: #ef4444; margin-left: 8px;">${rejectedCount} rejected</span>` : ''}
+              ${pendingCount > 0 ? `<span style="color: #888; margin-left: 8px;">${pendingCount} pending</span>` : ''}
+            </span>
+          </div>
+          ${tagsHTML}
+        </div>
+      `;
+    }
+
+    async function verifyCategory(sha256, category, status) {
+      // Find the video in allVideos
+      const video = allVideos.find(v => v.sha256 === sha256);
+      if (!video) {
+        console.error('Video not found:', sha256);
+        return;
+      }
+
+      // Update local state optimistically
+      if (!video.categoryVerifications) {
+        video.categoryVerifications = {};
+      }
+
+      // Toggle: if already this status, clear it
+      if (video.categoryVerifications[category] === status) {
+        delete video.categoryVerifications[category];
+        status = null;
+      } else {
+        video.categoryVerifications[category] = status;
+      }
+
+      // Update UI immediately
+      const container = document.querySelector(`[data-sha256="${sha256}"][data-category="${category}"]`);
+      if (container) {
+        const confirmBtn = container.querySelector('.verify-btn.confirm');
+        const rejectBtn = container.querySelector('.verify-btn.reject');
+
+        confirmBtn.classList.toggle('confirmed', status === 'confirmed');
+        rejectBtn.classList.toggle('rejected', status === 'rejected');
+      }
+
+      try {
+        const response = await fetch(`/admin/api/verify-category/${sha256}`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ category, status })
+        });
+
+        if (!response.ok) {
+          throw new Error(`HTTP ${response.status}`);
+        }
+
+        const result = await response.json();
+        console.log('Category verification saved:', result);
+
+        // Show toast feedback
+        const categoryName = formatCategoryName(category);
+        let message = status === 'confirmed'
+          ? `✓ Verified: ${categoryName}`
+          : status === 'rejected'
+            ? `✗ Rejected: NOT ${categoryName}`
+            : `Cleared: ${categoryName}`;
+
+        // Show auto-approval message if applicable
+        if (result.autoApproved) {
+          message = `🎉 Auto-approved! All major flags were rejected.`;
+          // Update local video state
+          video.action = 'SAFE';
+          // Update the badge in the UI
+          const card = document.querySelector(`.video-card [data-sha256="${sha256}"]`)?.closest('.video-card');
+          if (card) {
+            const badge = card.querySelector('.badge');
+            if (badge) {
+              badge.className = 'badge safe';
+              badge.textContent = 'SAFE';
+            }
+            card.className = 'video-card safe';
+          }
+        }
+
+        // Show label event status
+        if (result.labelEvent?.published) {
+          message += ` 📡 Label published to Nostr`;
+        }
+
+        showToast(message, null, result.autoApproved ? 4000 : 2000);
+
+      } catch (error) {
+        console.error('Failed to save verification:', error);
+        showToast('Failed to save verification: ' + error.message, null, 3000);
+
+        // Revert optimistic update on error
+        if (status === null) {
+          video.categoryVerifications[category] = status === 'confirmed' ? 'rejected' : 'confirmed';
+        } else {
+          delete video.categoryVerifications[category];
+        }
+      }
+    }
+
+    function formatCategoryName(key) {
+      const names = {
+        'nudity': 'Nudity',
+        'violence': 'Violence',
+        'gore': 'Gore',
+        'offensive': 'Offensive',
+        'weapon': 'Weapon',
+        'self_harm': 'Self-Harm',
+        'recreational_drug': 'Drugs',
+        'alcohol': 'Alcohol',
+        'tobacco': 'Tobacco',
+        'medical': 'Medical',
+        'gambling': 'Gambling',
+        'money': 'Money',
+        'destruction': 'Destruction',
+        'military': 'Military',
+        'text_profanity': 'Text Profanity',
+        'qr_unsafe': 'QR Code',
+        'ai_generated': 'AI-Generated',
+        'deepfake': 'Deepfake'
+      };
+      return names[key] || key;
+    }
+
+    function formatSubcategoryName(key) {
+      // Convert snake_case to Title Case
+      return key.split('_').map(word =>
+        word.charAt(0).toUpperCase() + word.slice(1)
+      ).join(' ');
     }
 
     function logout() {
@@ -933,14 +2518,32 @@
       });
     }
 
+    // Toggle mute on video click
+    function toggleMute(video) {
+      video.muted = !video.muted;
+      // Update the mute indicator
+      const card = video.closest('.video-card');
+      if (card) {
+        const indicator = card.querySelector('.mute-indicator');
+        if (indicator) {
+          indicator.textContent = video.muted ? '🔇 Click for sound' : '🔊 Sound on';
+        }
+      }
+    }
+
     // Auto-pause other videos when one starts playing
     function setupVideoPauseHandlers() {
       const videos = document.querySelectorAll('video');
 
       videos.forEach(video => {
+        // Skip if already has handler
+        if (video.dataset.pauseHandler) return;
+        video.dataset.pauseHandler = 'true';
+
         video.addEventListener('play', function() {
-          // Pause all other videos
-          videos.forEach(otherVideo => {
+          // Query ALL videos fresh each time (not stale reference)
+          const allVideos = document.querySelectorAll('video');
+          allVideos.forEach(otherVideo => {
             if (otherVideo !== video && !otherVideo.paused) {
               otherVideo.pause();
             }
@@ -949,8 +2552,411 @@
       });
     }
 
-    // Load videos on page load
-    loadVideos();
+    // Toggle showing all scores for a video
+    function toggleAllScores(videoId, button) {
+      const scoreRows = document.querySelectorAll(`.score-row[data-video-id="${videoId}"]`);
+      const hiddenRows = Array.from(scoreRows).filter(row => row.classList.contains('hidden'));
+
+      if (hiddenRows.length > 0) {
+        // Show all
+        hiddenRows.forEach(row => row.classList.remove('hidden'));
+        button.textContent = 'Show top 3 scores';
+      } else {
+        // Hide all except top 3
+        Array.from(scoreRows).forEach((row, index) => {
+          if (index >= 3) {
+            row.classList.add('hidden');
+          }
+        });
+        button.textContent = `Show all ${scoreRows.length} scores`;
+      }
+    }
+
+    // Toggle subcategory visibility when clicking on a score row
+    function toggleSubcategories(videoId, category) {
+      const subcatsEl = document.getElementById(`subcats-${videoId}-${category}`);
+      if (subcatsEl) {
+        subcatsEl.classList.toggle('visible');
+      }
+    }
+
+    // Toast notification system
+    function showToast(message, onUndo = null, duration = 5000) {
+      // Remove existing toast
+      if (currentToast) {
+        currentToast.remove();
+      }
+
+      const toast = document.createElement('div');
+      toast.className = 'toast';
+
+      const messageEl = document.createElement('div');
+      messageEl.className = 'toast-message';
+      messageEl.textContent = message;
+      toast.appendChild(messageEl);
+
+      if (onUndo) {
+        const undoBtn = document.createElement('button');
+        undoBtn.className = 'toast-undo';
+        undoBtn.textContent = 'Undo';
+        undoBtn.onclick = () => {
+          onUndo();
+          hideToast(toast);
+        };
+        toast.appendChild(undoBtn);
+      }
+
+      const closeBtn = document.createElement('button');
+      closeBtn.className = 'toast-close';
+      closeBtn.textContent = '×';
+      closeBtn.onclick = () => hideToast(toast);
+      toast.appendChild(closeBtn);
+
+      document.body.appendChild(toast);
+      currentToast = toast;
+
+      // Auto-hide after duration
+      if (duration > 0) {
+        setTimeout(() => {
+          if (currentToast === toast) {
+            hideToast(toast);
+          }
+        }, duration);
+      }
+
+      return toast;
+    }
+
+    function hideToast(toast) {
+      toast.classList.add('hiding');
+      setTimeout(() => {
+        toast.remove();
+        if (currentToast === toast) {
+          currentToast = null;
+        }
+      }, 300);
+    }
+
+    // Last action for undo
+    let lastAction = null;
+
+    // Quick action - change moderation action without modal
+    async function quickAction(sha256, action) {
+      const video = allVideos.find(v => v.sha256 === sha256);
+      if (!video) return;
+
+      const previousAction = video.action;
+      const previousData = { ...video };
+
+      // Find and fade out the card immediately
+      const card = document.querySelector(`.video-card:has([onclick*="${sha256}"])`);
+      if (card) {
+        card.style.opacity = '0.5';
+        card.style.pointerEvents = 'none';
+      }
+
+      try {
+        const response = await fetch(`/admin/api/moderate/${sha256}`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ action, reason: `Quick action: ${action}` })
+        });
+
+        if (!response.ok) {
+          throw new Error(`HTTP ${response.status}`);
+        }
+
+        const result = await response.json();
+        console.log('Action updated:', result);
+
+        // Remove card from grid with animation
+        if (card) {
+          card.style.transition = 'all 0.3s ease-out';
+          card.style.transform = 'scale(0.9)';
+          card.style.opacity = '0';
+          setTimeout(() => card.remove(), 300);
+        }
+
+        // Remove from allVideos array
+        const idx = allVideos.findIndex(v => v.sha256 === sha256);
+        if (idx !== -1) {
+          allVideos.splice(idx, 1);
+        }
+
+        // Store for undo
+        lastAction = { sha256, previousAction, previousData, newAction: action };
+
+        // Show undo in header
+        const actionName = action === 'SAFE' ? 'approved' :
+                          action === 'AGE_RESTRICTED' ? 'age-restricted' :
+                          action === 'PERMANENT_BAN' ? 'banned' : 'updated';
+
+        showHeaderUndo(`Video ${actionName}`);
+
+        // Refresh stats
+        loadRealStats();
+
+      } catch (error) {
+        console.error('Failed to update action:', error);
+        // Revert card visibility
+        if (card) {
+          card.style.opacity = '1';
+          card.style.pointerEvents = 'auto';
+        }
+        alert('Failed to update: ' + error.message);
+      }
+    }
+
+    function showHeaderUndo(message) {
+      const container = document.getElementById('undo-container');
+      const msgEl = document.getElementById('undo-message');
+      msgEl.textContent = message;
+      container.style.display = 'flex';
+
+      // Auto-hide after 10 seconds
+      setTimeout(() => {
+        if (lastAction) clearUndo();
+      }, 10000);
+    }
+
+    function clearUndo() {
+      lastAction = null;
+      document.getElementById('undo-container').style.display = 'none';
+    }
+
+    async function undoLastAction() {
+      if (!lastAction) return;
+
+      const { sha256, previousAction, previousData } = lastAction;
+
+      try {
+        const response = await fetch(`/admin/api/moderate/${sha256}`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            action: previousAction,
+            reason: `Undo: reverted to ${previousAction}`
+          })
+        });
+
+        if (response.ok) {
+          // Re-add to allVideos and re-render
+          allVideos.unshift(previousData);
+          applyFilters();
+          loadRealStats();
+        }
+      } catch (err) {
+        console.error('Undo failed:', err);
+        alert('Undo failed');
+      }
+
+      clearUndo();
+    }
+
+    // Update a single video card in place without reloading
+    function updateVideoCardInPlace(sha256, video) {
+      const cardElements = document.querySelectorAll(`[data-video-id="${sha256}"]`);
+      if (cardElements.length === 0) return;
+
+      // Find the video card container
+      const videoCard = document.querySelector(`.video-card:has([data-video-id="${sha256}"])`);
+      if (!videoCard) return;
+
+      // Add animation class
+      videoCard.classList.add('updating');
+      setTimeout(() => videoCard.classList.remove('updating'), 300);
+
+      // Update action badge
+      const actionClass = video.action.toLowerCase();
+      videoCard.className = `video-card ${actionClass}`;
+
+      const badge = videoCard.querySelector('.badge:not(.override-badge)');
+      if (badge) {
+        badge.className = `badge ${actionClass}`;
+        badge.textContent = video.action;
+      }
+
+      // Add/update override badge
+      const overlay = videoCard.querySelector('.video-overlay');
+      if (video.manualOverride && !overlay.querySelector('.override-badge')) {
+        const overrideBadge = document.createElement('span');
+        overrideBadge.className = 'badge override-badge';
+        overrideBadge.textContent = 'MANUAL';
+        overlay.appendChild(overrideBadge);
+      }
+
+      // Update stats
+      updateStats();
+    }
+
+    // Modal state
+    let currentEditingSha256 = null;
+    let currentEditingVideo = null;
+
+    // Open modal to edit scores
+    function openEditModal(sha256) {
+      const video = allVideos.find(v => v.sha256 === sha256);
+      if (!video) return;
+
+      currentEditingSha256 = sha256;
+      currentEditingVideo = video;
+
+      // Build score sliders
+      const categories = ['nudity', 'violence', 'gore', 'offensive', 'weapon', 'self_harm',
+                         'recreational_drug', 'alcohol', 'tobacco', 'ai_generated', 'deepfake',
+                         'medical', 'gambling', 'money', 'destruction', 'military',
+                         'text_profanity', 'qr_unsafe'];
+
+      const slidersHTML = categories.map(cat => {
+        const currentScore = video.scores[cat] || 0;
+        const label = formatCategoryName(cat);
+        return `
+          <div class="score-slider">
+            <label>${label}</label>
+            <input type="range" id="edit-${cat}" min="0" max="100" value="${(currentScore * 100).toFixed(0)}"
+                   oninput="updateSliderValue('${cat}', this.value)">
+            <span class="score-slider-value" id="value-${cat}">${(currentScore * 100).toFixed(0)}%</span>
+          </div>
+        `;
+      }).join('');
+
+      document.getElementById('edit-scores-container').innerHTML = slidersHTML;
+      document.getElementById('edit-action').value = video.action;
+      document.getElementById('edit-reason').value = video.manualOverride ? video.reason : '';
+
+      // Show modal
+      document.getElementById('edit-modal').classList.add('show');
+    }
+
+    function closeEditModal() {
+      document.getElementById('edit-modal').classList.remove('show');
+      currentEditingSha256 = null;
+      currentEditingVideo = null;
+    }
+
+    function updateSliderValue(category, value) {
+      document.getElementById(`value-${category}`).textContent = value + '%';
+    }
+
+    async function saveEdits() {
+      if (!currentEditingSha256) return;
+
+      // Get all slider values
+      const categories = ['nudity', 'violence', 'gore', 'offensive', 'weapon', 'self_harm',
+                         'recreational_drug', 'alcohol', 'tobacco', 'ai_generated', 'deepfake',
+                         'medical', 'gambling', 'money', 'destruction', 'military',
+                         'text_profanity', 'qr_unsafe'];
+
+      const newScores = {};
+      categories.forEach(cat => {
+        const slider = document.getElementById(`edit-${cat}`);
+        if (slider) {
+          newScores[cat] = parseInt(slider.value) / 100;
+        }
+      });
+
+      const action = document.getElementById('edit-action').value;
+      const reason = document.getElementById('edit-reason').value || 'Manual score override by moderator';
+
+      try {
+        const response = await fetch(`/admin/api/moderate/${currentEditingSha256}`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            action,
+            reason,
+            scores: newScores
+          })
+        });
+
+        if (!response.ok) {
+          throw new Error(`HTTP ${response.status}`);
+        }
+
+        const result = await response.json();
+        console.log('Scores updated:', result);
+
+        closeEditModal();
+        await loadVideos(paginationState.currentCursor);
+        alert('Successfully updated scores and action');
+      } catch (error) {
+        console.error('Failed to update:', error);
+        alert('Failed to update: ' + error.message);
+      }
+    }
+
+    // Close modal when clicking outside
+    document.addEventListener('click', (e) => {
+      const modal = document.getElementById('edit-modal');
+      if (e.target === modal) {
+        closeEditModal();
+      }
+    });
+
+    // Keyboard shortcuts - only work when no input is focused
+    document.addEventListener('keydown', (e) => {
+      // Don't trigger if user is typing in an input/textarea
+      if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA' || e.target.tagName === 'SELECT') {
+        return;
+      }
+
+      // Don't trigger if modal is open
+      const modal = document.getElementById('edit-modal');
+      if (modal && modal.classList.contains('show')) {
+        return;
+      }
+
+      switch(e.key.toLowerCase()) {
+        case 'r':
+          // R - Go to Quick Review mode
+          e.preventDefault();
+          window.location.href = '/admin/review';
+          break;
+        case 'f':
+          // F - Refresh videos
+          e.preventDefault();
+          loadVideos(paginationState.currentCursor);
+          break;
+      }
+    });
+
+    // Load TRIAGE videos by default (new videos needing moderation)
+    loadTriageVideos();
+    loadRealStats();
+    // Set filter dropdown to TRIAGE
+    document.getElementById('filter-action').value = 'TRIAGE';
   </script>
+
+  <!-- Edit Scores Modal -->
+  <div class="modal" id="edit-modal">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h2>Edit Moderation Scores</h2>
+        <button class="modal-close" onclick="closeEditModal()">&times;</button>
+      </div>
+      <div class="modal-body">
+        <div id="edit-scores-container"></div>
+
+        <div class="form-group">
+          <label>Action</label>
+          <select id="edit-action">
+            <option value="SAFE">Safe</option>
+            <option value="REVIEW">Review</option>
+            <option value="AGE_RESTRICTED">Age-Restricted</option>
+            <option value="PERMANENT_BAN">Permanent Ban</option>
+          </select>
+        </div>
+
+        <div class="form-group">
+          <label>Reason for Override</label>
+          <textarea id="edit-reason" placeholder="Explain why you're overriding the AI classification..."></textarea>
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button class="btn-cancel" onclick="closeEditModal()">Cancel</button>
+        <button class="btn-save" onclick="saveEdits()">Save Changes</button>
+      </div>
+    </div>
+  </div>
 </body>
 </html>

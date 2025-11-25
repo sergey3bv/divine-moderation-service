@@ -1,9 +1,28 @@
 // ABOUTME: Nostr event publisher for faro.nos.social moderation system
-// ABOUTME: Creates and publishes NIP-56 (kind 1984) reporting events
+// ABOUTME: Creates and publishes NIP-56 (kind 1984) reports and NIP-32 (kind 1985) labels
 
 import { finalizeEvent, generateSecretKey, getPublicKey } from 'nostr-tools/pure';
 import { Relay } from 'nostr-tools/relay';
 import { hexToBytes } from '@noble/hashes/utils';
+
+/**
+ * NIP-32 label mapping for content categories
+ */
+const CATEGORY_LABELS = {
+  'nudity': 'nudity',
+  'violence': 'violence',
+  'gore': 'gore',
+  'offensive': 'profanity',
+  'weapon': 'weapons',
+  'self_harm': 'self-harm',
+  'recreational_drug': 'drugs',
+  'alcohol': 'alcohol',
+  'tobacco': 'tobacco',
+  'ai_generated': 'ai-generated',
+  'deepfake': 'deepfake',
+  'medical': 'medical',
+  'gambling': 'gambling'
+};
 
 /**
  * Publish moderation event to faro.nos.social
@@ -38,8 +57,16 @@ export async function publishToFaro(report, env, mockRelay = null) {
     // Testing path
     await mockRelay.publish(event);
   } else {
-    // Production path
-    const relay = await Relay.connect(env.FARO_RELAY_URL);
+    // Production path - add Cloudflare Access headers if configured
+    const relayOptions = {};
+    if (env.CF_ACCESS_CLIENT_ID && env.CF_ACCESS_CLIENT_SECRET) {
+      relayOptions.headers = {
+        'CF-Access-Client-Id': env.CF_ACCESS_CLIENT_ID,
+        'CF-Access-Client-Secret': env.CF_ACCESS_CLIENT_SECRET
+      };
+    }
+
+    const relay = await Relay.connect(env.FARO_RELAY_URL, relayOptions);
     try {
       await relay.publish(event);
     } finally {
@@ -87,6 +114,146 @@ function createReportEvent(report, privateKeyHex) {
   // Create unsigned event
   const unsignedEvent = {
     kind: 1984,
+    created_at: Math.floor(Date.now() / 1000),
+    tags,
+    content
+  };
+
+  // Sign event
+  const secretKey = hexToBytes(privateKeyHex);
+  const signedEvent = finalizeEvent(unsignedEvent, secretKey);
+
+  return signedEvent;
+}
+
+/**
+ * Publish a NIP-32 kind 1985 label event for human-verified content
+ * @param {Object} labelData - Label information
+ * @param {string} labelData.sha256 - Video hash
+ * @param {string} labelData.category - Category being labeled (e.g., 'ai_generated')
+ * @param {string} labelData.status - 'confirmed' or 'rejected'
+ * @param {number} labelData.score - AI confidence score (0-1)
+ * @param {string} [labelData.cdnUrl] - URL to video
+ * @param {string} [labelData.nostrEventId] - Original Nostr event ID if known
+ * @param {Object} env - Environment with Nostr credentials
+ * @returns {Promise<Object>} Published event details
+ */
+export async function publishLabelEvent(labelData, env) {
+  const { sha256, category, status, score, cdnUrl, nostrEventId } = labelData;
+
+  // Validate configuration
+  if (!env.MODERATOR_NSEC && !env.NOSTR_PRIVATE_KEY) {
+    console.log('[LABEL] No MODERATOR_NSEC or NOSTR_PRIVATE_KEY configured, skipping label publish');
+    return { published: false, reason: 'No signing key configured' };
+  }
+
+  const relayUrl = env.NOSTR_RELAY_URL || env.FARO_RELAY_URL;
+  if (!relayUrl) {
+    console.log('[LABEL] No relay URL configured, skipping label publish');
+    return { published: false, reason: 'No relay URL configured' };
+  }
+
+  // Use moderator key if available, otherwise fall back to service key
+  const privateKeyHex = env.MODERATOR_NSEC || env.NOSTR_PRIVATE_KEY;
+
+  // Create the label event
+  const event = createLabelEvent(labelData, privateKeyHex);
+
+  console.log(`[LABEL] Publishing kind 1985 label: ${category}=${status} for ${sha256.substring(0, 16)}...`);
+
+  try {
+    // Connect and publish
+    const relayOptions = {};
+    if (env.CF_ACCESS_CLIENT_ID && env.CF_ACCESS_CLIENT_SECRET) {
+      relayOptions.headers = {
+        'CF-Access-Client-Id': env.CF_ACCESS_CLIENT_ID,
+        'CF-Access-Client-Secret': env.CF_ACCESS_CLIENT_SECRET
+      };
+    }
+
+    const relay = await Relay.connect(relayUrl, relayOptions);
+    try {
+      await relay.publish(event);
+      console.log(`[LABEL] Published label event ${event.id} to ${relayUrl}`);
+      return {
+        published: true,
+        eventId: event.id,
+        pubkey: event.pubkey,
+        relay: relayUrl
+      };
+    } finally {
+      relay.close();
+    }
+  } catch (error) {
+    console.error(`[LABEL] Failed to publish label event:`, error.message);
+    return { published: false, reason: error.message };
+  }
+}
+
+/**
+ * Create a signed NIP-32 label event (kind 1985)
+ * @param {Object} labelData - Label data
+ * @param {string} privateKeyHex - Nostr private key (hex)
+ * @returns {Object} Signed Nostr event
+ */
+function createLabelEvent(labelData, privateKeyHex) {
+  const { sha256, category, status, score, cdnUrl, nostrEventId } = labelData;
+
+  // Get the standard label name
+  const labelName = CATEGORY_LABELS[category] || category;
+
+  // Namespace for content warnings
+  const namespace = 'content-warning';
+
+  // Build tags
+  const tags = [
+    ['L', namespace],  // Label namespace declaration
+  ];
+
+  // For confirmed labels, add the positive label
+  // For rejected labels, add a "not-X" label to indicate human verified it's NOT this
+  if (status === 'confirmed') {
+    // Positive label with metadata
+    const metadata = JSON.stringify({
+      confidence: score,
+      verified: true,
+      source: 'human-moderator',
+      sha256: sha256
+    });
+    tags.push(['l', labelName, namespace, metadata]);
+  } else if (status === 'rejected') {
+    // Negative label - human verified this is NOT the category
+    const metadata = JSON.stringify({
+      confidence: score,
+      verified: true,
+      source: 'human-moderator',
+      rejected: true,
+      sha256: sha256
+    });
+    tags.push(['l', `not-${labelName}`, namespace, metadata]);
+  }
+
+  // Reference the content being labeled
+  if (nostrEventId) {
+    tags.push(['e', nostrEventId]);  // Reference Nostr event
+  }
+
+  // Add reference URL
+  if (cdnUrl) {
+    tags.push(['r', cdnUrl]);
+  }
+
+  // Always include the sha256 as an identifier
+  tags.push(['x', sha256]);  // Content hash reference
+
+  // Build content (human-readable summary)
+  const content = status === 'confirmed'
+    ? `Human moderator verified: This content contains ${labelName} (AI confidence: ${(score * 100).toFixed(0)}%)`
+    : `Human moderator verified: This content does NOT contain ${labelName} (AI false positive, was ${(score * 100).toFixed(0)}%)`;
+
+  // Create unsigned event
+  const unsignedEvent = {
+    kind: 1985,  // NIP-32 label event
     created_at: Math.floor(Date.now() / 1000),
     tags,
     content

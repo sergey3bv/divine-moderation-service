@@ -14,6 +14,12 @@ id = "10af689fc82140ed9159eef3c1c47079"
 binding = "R2_VIDEOS"
 bucket_name = "nostrvine-media"
 
+# D1 database for Blossom webhook events (video uploads)
+[[d1_databases]]
+binding = "BLOSSOM_DB"
+database_name = "blossom-webhook-events"
+database_id = "829f06cf-294b-4491-8611-30fc53df2589"
+
 # Queue producer configuration (for testing)
 [[queues.producers]]
 binding = "MODERATION_QUEUE"
@@ -30,7 +36,7 @@ max_retries = 3
 [vars]
 MODERATION_ENABLED = "true"
 CDN_DOMAIN = "cdn.divine.video"  # CDN domain for video access
-PRIMARY_MODERATION_PROVIDER = "bunnycdn"  # Use BunnyCDN content tagging (free, fast, accurate)
+PRIMARY_MODERATION_PROVIDER = "hiveai"  # Use Hive.AI for content moderation + AI detection
 
 # Thresholds for content classification (0.0 - 1.0)
 # NSFW / Adult Content
@@ -66,9 +72,14 @@ AI_GENERATED_THRESHOLD_HIGH = "0.8"   # Age-restricted
 AI_GENERATED_THRESHOLD_MEDIUM = "0.6" # Human review
 
 # Secrets (set with: wrangler secret put <NAME>)
-# NOSTR_PRIVATE_KEY - for signing events to faro.nos.social
+# CF_ACCESS_CLIENT_ID - Cloudflare Access service token ID for relay.divine.video
+# CF_ACCESS_CLIENT_SECRET - Cloudflare Access service token secret for relay.divine.video
+# NOSTR_PRIVATE_KEY - for signing NIP-56 report events to faro.nos.social
+# MODERATOR_NSEC - Nostr private key (hex) for signing NIP-32 label events from human moderators
+# NOSTR_RELAY_URL - Nostr relay for publishing label events (e.g., wss://relay.divine.video)
 # FARO_RELAY_URL - Nostr relay for faro moderation events
 # SIGHTENGINE_API_USER - (optional, for fallback)
 # SIGHTENGINE_API_SECRET - (optional, for fallback)
-# HIVE_API_KEY - Hive.AI V2 API token for AI-generated content and deepfake detection
+# HIVE_MODERATION_API_KEY - Hive.AI V2 API token for content moderation (nudity, violence, etc.)
+# HIVE_AI_DETECTION_API_KEY - Hive.AI V2 API token for AI-generated content and deepfake detection
 # ADMIN_PASSWORD_HASH - SHA-256 hash of admin dashboard password
