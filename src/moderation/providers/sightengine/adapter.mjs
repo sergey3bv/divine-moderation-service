@@ -1,3 +1,6 @@
+// This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
+// If a copy of the MPL was not distributed with this file, You can obtain one at https://mozilla.org/MPL/2.0/.
+//
 // ABOUTME: Sightengine provider adapter for pluggable moderation architecture
 // ABOUTME: Wraps existing Sightengine client in BaseModerationProvider interface
 
@@ -49,21 +52,27 @@ export class SightengineProvider extends BaseModerationProvider {
       );
 
       // Sightengine already returns a normalized-ish format
-      // Extract the parts we need
+      // Extract the parts we need - use maxScores object directly
       const normalized = {
         scores: {
-          nudity: rawResult.maxNudityScore || 0,
-          violence: rawResult.maxViolenceScore || 0,
+          nudity: rawResult.maxScores?.nudity || 0,
+          violence: rawResult.maxScores?.violence || 0,
           gore: rawResult.maxScores?.gore || 0,
           offensive: rawResult.maxScores?.offensive || 0,
-          weapons: rawResult.maxScores?.weapon || 0,
-          drugs: rawResult.maxScores?.recreational_drug || 0,
+          weapon: rawResult.maxScores?.weapon || 0,
+          recreational_drug: rawResult.maxScores?.recreational_drug || 0,
           alcohol: rawResult.maxScores?.alcohol || 0,
           tobacco: rawResult.maxScores?.tobacco || 0,
           gambling: rawResult.maxScores?.gambling || 0,
-          selfHarm: rawResult.maxScores?.self_harm || 0,
-          aiGenerated: rawResult.maxAiGeneratedScore || rawResult.maxScores?.ai_generated || 0,
-          deepfake: rawResult.maxScores?.deepfake || 0
+          self_harm: rawResult.maxScores?.self_harm || 0,
+          ai_generated: rawResult.maxScores?.ai_generated || 0,
+          deepfake: rawResult.maxScores?.deepfake || 0,
+          medical: rawResult.maxScores?.medical || 0,
+          money: rawResult.maxScores?.money || 0,
+          destruction: rawResult.maxScores?.destruction || 0,
+          military: rawResult.maxScores?.military || 0,
+          text_profanity: rawResult.maxScores?.text_profanity || 0,
+          qr_unsafe: rawResult.maxScores?.qr_unsafe || 0
         },
         details: rawResult.detailedCategories || {},
         flaggedFrames: rawResult.flaggedFrames || []

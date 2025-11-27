@@ -1,3 +1,6 @@
+// This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
+// If a copy of the MPL was not distributed with this file, You can obtain one at https://mozilla.org/MPL/2.0/.
+//
 // ABOUTME: Nostr event publisher for faro.nos.social moderation system
 // ABOUTME: Creates and publishes NIP-56 (kind 1984) reports and NIP-32 (kind 1985) labels
 
