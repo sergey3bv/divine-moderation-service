@@ -1,3 +1,6 @@
+// This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
+// If a copy of the MPL was not distributed with this file, You can obtain one at https://mozilla.org/MPL/2.0/.
+//
 // ABOUTME: Nostr relay WebSocket client for fetching event context
 // ABOUTME: Connects to relay3.openvine.co to get kind 34236 video events by SHA256
 

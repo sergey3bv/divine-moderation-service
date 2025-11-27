@@ -1,3 +1,6 @@
+// This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
+// If a copy of the MPL was not distributed with this file, You can obtain one at https://mozilla.org/MPL/2.0/.
+//
 // ABOUTME: Content severity classification logic
 // ABOUTME: Determines action (SAFE/REVIEW/AGE_RESTRICTED/PERMANENT_BAN) based on moderation scores and content category
 

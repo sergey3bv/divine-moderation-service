@@ -2,6 +2,7 @@
   "name": "divine-moderation-service",
   "version": "0.1.0",
   "description": "Content moderation worker for Divine video uploads",
+  "license": "MPL-2.0",
   "type": "module",
   "scripts": {
     "dev": "wrangler dev",
