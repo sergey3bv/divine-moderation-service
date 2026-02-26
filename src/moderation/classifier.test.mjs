@@ -145,7 +145,7 @@ describe('Moderation Classifier', () => {
     expect(result.flaggedFrames).toEqual(flaggedFrames);
   });
 
-  it('should classify high AI-generated score as AGE_RESTRICTED', () => {
+  it('should classify high AI-generated score as PERMANENT_BAN', () => {
     const result = classifyModerationResult({
       maxScores: {
         nudity: 0.1,
@@ -154,9 +154,9 @@ describe('Moderation Classifier', () => {
       }
     });
 
-    expect(result.action).toBe('AGE_RESTRICTED');
-    expect(result.severity).toBe('high');
-    expect(result.primaryConcern).toBe('ai_generated');
+    expect(result.action).toBe('PERMANENT_BAN');
+    expect(result.severity).toBe('critical');
+    expect(result.category).toBe('ai_generated');
     expect(result.reason).toContain('AI-generated');
   });
 
@@ -256,7 +256,7 @@ describe('Moderation Classifier', () => {
     expect(result.severity).toBe('high');
   });
 
-  it('should classify high deepfake score as AGE_RESTRICTED', () => {
+  it('should classify high deepfake score as PERMANENT_BAN', () => {
     const result = classifyModerationResult({
       maxScores: {
         deepfake: 0.85,
@@ -265,8 +265,9 @@ describe('Moderation Classifier', () => {
       }
     });
 
-    expect(result.action).toBe('AGE_RESTRICTED');
-    expect(result.severity).toBe('high');
+    expect(result.action).toBe('PERMANENT_BAN');
+    expect(result.severity).toBe('critical');
+    expect(result.category).toBe('deepfake');
   });
 
   it('should classify medium offensive score as REVIEW', () => {

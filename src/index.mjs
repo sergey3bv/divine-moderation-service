@@ -1081,7 +1081,7 @@ async function runMigration() {
         moderated: true,
         blocked: action === 'PERMANENT_BAN',
         age_restricted: action === 'AGE_RESTRICTED',
-        needs_review: action === 'REVIEW',
+        needs_review: action === 'REVIEW' || action === 'PERMANENT_BAN',
         action,
         provider: d1Result.provider,
         scores: d1Result.scores ? JSON.parse(d1Result.scores) : null,

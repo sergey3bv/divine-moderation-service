@@ -23,10 +23,10 @@ const DEFAULT_SELF_HARM_HIGH = 0.7;
 const DEFAULT_SELF_HARM_MEDIUM = 0.5;
 
 // Categories that warrant permanent ban
-const PERMANENT_BAN_CATEGORIES = ['self_harm', 'offensive'];
+const PERMANENT_BAN_CATEGORIES = ['self_harm', 'offensive', 'ai_generated', 'deepfake'];
 
 // Categories that warrant age restriction
-const AGE_RESTRICTED_CATEGORIES = ['nudity', 'violence', 'gore', 'weapon', 'recreational_drug', 'alcohol', 'tobacco', 'gambling', 'destruction', 'ai_generated', 'deepfake'];
+const AGE_RESTRICTED_CATEGORIES = ['nudity', 'violence', 'gore', 'weapon', 'recreational_drug', 'alcohol', 'tobacco', 'gambling', 'destruction'];
 
 // Categories that are informational only (lower threshold for review)
 const INFORMATIONAL_CATEGORIES = ['medical', 'money', 'military', 'text_profanity', 'qr_unsafe'];
@@ -149,6 +149,18 @@ export function classifyModerationResult(moderationData, env = {}) {
     severity = 'critical';
     category = 'extreme_gore';
     reason = 'Extreme gore content detected - immediate removal required';
+  }
+  else if (scores.ai_generated >= (thresholds.ai_generated?.high || DEFAULT_AI_GENERATED_HIGH)) {
+    action = 'PERMANENT_BAN';
+    severity = 'critical';
+    category = 'ai_generated';
+    reason = 'AI-generated content detected - not permitted on platform';
+  }
+  else if (scores.deepfake >= (thresholds.deepfake?.high || DEFAULT_AI_GENERATED_HIGH)) {
+    action = 'PERMANENT_BAN';
+    severity = 'critical';
+    category = 'deepfake';
+    reason = 'Deepfake content detected - not permitted on platform';
   }
   // Check for AGE_RESTRICTED categories
   else if (AGE_RESTRICTED_CATEGORIES.some(cat => {
