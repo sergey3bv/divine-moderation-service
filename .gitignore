@@ -7,7 +7,9 @@ dist/
 coverage/
 .private-journal/
 example_vine_porn/
+example_porn_videos/
 old_files/
 .dev.vars
 .backfill-checkpoint.json
+.test-nsec
 old_files/
