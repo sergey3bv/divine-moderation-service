@@ -256,10 +256,10 @@ describe('Moderation Classifier', () => {
     expect(result.severity).toBe('high');
   });
 
-  it('should classify high deepfake score as PERMANENT_BAN', () => {
+  it('should classify very high deepfake score as PERMANENT_BAN', () => {
     const result = classifyModerationResult({
       maxScores: {
-        deepfake: 0.85,
+        deepfake: 0.96,
         nudity: 0.1,
         violence: 0.1
       }
@@ -268,6 +268,19 @@ describe('Moderation Classifier', () => {
     expect(result.action).toBe('PERMANENT_BAN');
     expect(result.severity).toBe('critical');
     expect(result.category).toBe('deepfake');
+  });
+
+  it('should classify medium deepfake score (0.85) as REVIEW not ban', () => {
+    const result = classifyModerationResult({
+      maxScores: {
+        deepfake: 0.85,
+        nudity: 0.1,
+        violence: 0.1
+      }
+    });
+
+    expect(result.action).toBe('REVIEW');
+    expect(result.severity).toBe('medium');
   });
 
   it('should classify medium offensive score as REVIEW', () => {

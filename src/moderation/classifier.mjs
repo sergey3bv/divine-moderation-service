@@ -11,6 +11,8 @@ const DEFAULT_VIOLENCE_HIGH = 0.8;
 const DEFAULT_VIOLENCE_MEDIUM = 0.6;
 const DEFAULT_AI_GENERATED_HIGH = 0.8;
 const DEFAULT_AI_GENERATED_MEDIUM = 0.6;
+const DEFAULT_DEEPFAKE_HIGH = 0.95;
+const DEFAULT_DEEPFAKE_MEDIUM = 0.8;
 const DEFAULT_GORE_HIGH = 0.8;
 const DEFAULT_GORE_MEDIUM = 0.6;
 const DEFAULT_OFFENSIVE_HIGH = 0.8;
@@ -87,8 +89,8 @@ export function classifyModerationResult(moderationData, env = {}) {
       medium: parseFloat(env.AI_GENERATED_THRESHOLD_MEDIUM || DEFAULT_AI_GENERATED_MEDIUM)
     },
     deepfake: {
-      high: parseFloat(env.DEEPFAKE_THRESHOLD_HIGH || DEFAULT_AI_GENERATED_HIGH),
-      medium: parseFloat(env.DEEPFAKE_THRESHOLD_MEDIUM || DEFAULT_AI_GENERATED_MEDIUM)
+      high: parseFloat(env.DEEPFAKE_THRESHOLD_HIGH || DEFAULT_DEEPFAKE_HIGH),
+      medium: parseFloat(env.DEEPFAKE_THRESHOLD_MEDIUM || DEFAULT_DEEPFAKE_MEDIUM)
     },
     gore: {
       high: parseFloat(env.GORE_THRESHOLD_HIGH || DEFAULT_GORE_HIGH),
