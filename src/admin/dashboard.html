@@ -842,6 +842,199 @@
       text-decoration: line-through;
     }
 
+    /* Classifier panels */
+    .classifier-panel {
+      margin-top: 10px;
+      padding: 10px 12px;
+      background: #0a0a0a;
+      border: 1px solid #333;
+      border-radius: 6px;
+    }
+
+    .classifier-panel-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      cursor: pointer;
+      user-select: none;
+    }
+
+    .classifier-panel-title {
+      font-size: 11px;
+      font-weight: 600;
+      color: #888;
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+      display: flex;
+      align-items: center;
+      gap: 6px;
+    }
+
+    .classifier-panel-toggle {
+      font-size: 10px;
+      color: #666;
+      transition: transform 0.2s;
+    }
+
+    .classifier-panel-toggle.open {
+      transform: rotate(180deg);
+    }
+
+    .classifier-panel-body {
+      display: none;
+      margin-top: 10px;
+    }
+
+    .classifier-panel-body.open {
+      display: block;
+    }
+
+    .classifier-description {
+      font-size: 13px;
+      color: #d0d0d0;
+      line-height: 1.5;
+      margin-bottom: 10px;
+      padding: 8px;
+      background: #111;
+      border-radius: 4px;
+      border-left: 3px solid #2563eb;
+    }
+
+    .classifier-tags {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 5px;
+      margin-bottom: 8px;
+    }
+
+    .classifier-tag {
+      display: inline-block;
+      padding: 2px 8px;
+      border-radius: 12px;
+      font-size: 11px;
+    }
+
+    .classifier-tag.topic {
+      background: #1e293b;
+      border: 1px solid #334155;
+      color: #94a3b8;
+    }
+
+    .classifier-tag.activity {
+      background: #1a2e1a;
+      border: 1px solid #2d5a2d;
+      color: #86efac;
+    }
+
+    .classifier-tag.object {
+      background: #2a1f0a;
+      border: 1px solid #5a4a2d;
+      color: #fbbf24;
+    }
+
+    .classifier-tag.setting {
+      background: #1a1a2e;
+      border: 1px solid #2d2d5a;
+      color: #a5b4fc;
+    }
+
+    .classifier-tag.mood {
+      background: #2d1b4e;
+      border: 1px solid #7c3aed;
+      color: #c4b5fd;
+    }
+
+    .classifier-tag.primary {
+      background: #1e3a5f;
+      border: 1px solid #2563eb;
+      color: #93c5fd;
+      font-weight: 600;
+    }
+
+    .classifier-tag.speech {
+      background: #0a2a2a;
+      border: 1px solid #0d9488;
+      color: #5eead4;
+    }
+
+    .classifier-tag.language {
+      background: #1a1a2e;
+      border: 1px solid #4338ca;
+      color: #a5b4fc;
+    }
+
+    .classifier-label-row {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      margin-bottom: 6px;
+      font-size: 11px;
+    }
+
+    .classifier-label-name {
+      color: #888;
+      min-width: 80px;
+    }
+
+    .topic-confidence-bar {
+      flex: 1;
+      height: 4px;
+      background: #1a1a1a;
+      border-radius: 2px;
+      overflow: hidden;
+    }
+
+    .topic-confidence-fill {
+      height: 100%;
+      background: #2563eb;
+      border-radius: 2px;
+    }
+
+    .topic-confidence-value {
+      color: #666;
+      font-size: 10px;
+      min-width: 30px;
+      text-align: right;
+    }
+
+    /* Inline classifier summary in card list */
+    .classifier-inline-summary {
+      margin-top: 8px;
+      padding: 8px;
+      background: #111;
+      border-radius: 4px;
+      border-left: 3px solid #2563eb;
+    }
+
+    .classifier-inline-description {
+      font-size: 12px;
+      color: #c0c0c0;
+      line-height: 1.4;
+      margin-bottom: 6px;
+    }
+
+    .classifier-inline-pills {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 4px;
+    }
+
+    .classifier-inline-pill {
+      display: inline-block;
+      padding: 1px 6px;
+      background: #1e293b;
+      border: 1px solid #334155;
+      border-radius: 10px;
+      font-size: 10px;
+      color: #94a3b8;
+    }
+
+    .classifier-inline-pill.primary {
+      background: #1e3a5f;
+      border-color: #2563eb;
+      color: #93c5fd;
+    }
+
     /* Modal */
     .modal {
       display: none;
@@ -1916,6 +2109,11 @@
         if (divineLink && video.nostrContext && video.nostrContext.eventId) {
           divineLink.href = `https://divine.video/video/${video.nostrContext.eventId}?source=discovery&index=0`;
         }
+
+        // Load full classifier detail panels (async, non-blocking)
+        if (video.classifierSummary) {
+          loadClassifierDetail(video.sha256);
+        }
       });
     }
 
@@ -2108,6 +2306,10 @@
             </div>
 
             ${reason ? `<div class="reason">${escapeHtml(reason)}</div>` : ''}
+
+            ${createClassifierInlineSummary(video.classifierSummary)}
+
+            <div id="classifier-detail-${sha256}"></div>
 
             ${nip85TagsHTML}
 
@@ -2309,6 +2511,121 @@
       'medical': { namespace: 'content-warning', label: 'medical' },
       'gambling': { namespace: 'content-warning', label: 'gambling' }
     };
+
+    function createClassifierInlineSummary(summary) {
+      if (!summary) return '';
+      const { description, topics, primaryTopic, mood } = summary;
+      if (!description && !topics?.length && !primaryTopic) return '';
+
+      const pills = [];
+      if (primaryTopic) {
+        pills.push(`<span class="classifier-inline-pill primary">${escapeHtml(primaryTopic)}</span>`);
+      }
+      if (topics) {
+        topics.slice(0, 4).forEach(t => {
+          if (t !== primaryTopic) pills.push(`<span class="classifier-inline-pill">${escapeHtml(t)}</span>`);
+        });
+      }
+      if (mood) {
+        pills.push(`<span class="classifier-inline-pill">${escapeHtml(mood)}</span>`);
+      }
+
+      return `
+        <div class="classifier-inline-summary">
+          ${description ? `<div class="classifier-inline-description">${escapeHtml(description)}</div>` : ''}
+          ${pills.length > 0 ? `<div class="classifier-inline-pills">${pills.join('')}</div>` : ''}
+        </div>
+      `;
+    }
+
+    async function loadClassifierDetail(sha256) {
+      const container = document.getElementById(`classifier-detail-${sha256}`);
+      if (!container || container.dataset.loaded === 'true') return;
+      container.dataset.loaded = 'true';
+
+      try {
+        const resp = await fetch(`/admin/api/classifier/${sha256}`);
+        if (!resp.ok) return;
+        const data = await resp.json();
+
+        const scene = data.sceneClassification;
+        const topics = data.topicProfile;
+        let html = '';
+
+        // Scene Classification panel
+        if (scene) {
+          const tagsHTML = [];
+          if (scene.topics) scene.topics.forEach(t => tagsHTML.push(`<span class="classifier-tag topic">${escapeHtml(t)}</span>`));
+          if (scene.activities) scene.activities.forEach(a => tagsHTML.push(`<span class="classifier-tag activity">${escapeHtml(a)}</span>`));
+          if (scene.objects) scene.objects.forEach(o => tagsHTML.push(`<span class="classifier-tag object">${escapeHtml(o)}</span>`));
+          if (scene.setting) tagsHTML.push(`<span class="classifier-tag setting">${escapeHtml(scene.setting)}</span>`);
+          if (scene.mood) tagsHTML.push(`<span class="classifier-tag mood">${escapeHtml(scene.mood)}</span>`);
+
+          html += `
+            <div class="classifier-panel">
+              <div class="classifier-panel-header" onclick="toggleClassifierPanel('scene-${sha256}')">
+                <span class="classifier-panel-title">Scene Classification</span>
+                <span class="classifier-panel-toggle" id="toggle-scene-${sha256}">▼</span>
+              </div>
+              <div class="classifier-panel-body" id="body-scene-${sha256}">
+                ${scene.description ? `<div class="classifier-description">${escapeHtml(scene.description)}</div>` : ''}
+                ${tagsHTML.length > 0 ? `<div class="classifier-tags">${tagsHTML.join('')}</div>` : ''}
+              </div>
+            </div>
+          `;
+        }
+
+        // Transcript Analysis panel
+        if (topics) {
+          let topicRowsHTML = '';
+          if (topics.topics && topics.topics.length > 0) {
+            topicRowsHTML = topics.topics.map(t => `
+              <div class="classifier-label-row">
+                <span class="classifier-label-name">${escapeHtml(t.category)}</span>
+                <div class="topic-confidence-bar">
+                  <div class="topic-confidence-fill" style="width: ${(t.confidence * 100).toFixed(0)}%"></div>
+                </div>
+                <span class="topic-confidence-value">${(t.confidence * 100).toFixed(0)}%</span>
+              </div>
+            `).join('');
+          }
+
+          const indicators = [];
+          if (topics.primary_topic) indicators.push(`<span class="classifier-tag primary">${escapeHtml(topics.primary_topic)}</span>`);
+          if (topics.language_hint) indicators.push(`<span class="classifier-tag language">${escapeHtml(topics.language_hint)}</span>`);
+          if (topics.has_speech === true) indicators.push(`<span class="classifier-tag speech">Has Speech</span>`);
+          else if (topics.has_speech === false) indicators.push(`<span class="classifier-tag" style="border-color: #555; color: #666;">No Speech</span>`);
+
+          html += `
+            <div class="classifier-panel">
+              <div class="classifier-panel-header" onclick="toggleClassifierPanel('transcript-${sha256}')">
+                <span class="classifier-panel-title">Transcript Analysis</span>
+                <span class="classifier-panel-toggle" id="toggle-transcript-${sha256}">▼</span>
+              </div>
+              <div class="classifier-panel-body" id="body-transcript-${sha256}">
+                ${indicators.length > 0 ? `<div class="classifier-tags">${indicators.join('')}</div>` : ''}
+                ${topicRowsHTML}
+              </div>
+            </div>
+          `;
+        }
+
+        container.innerHTML = html;
+      } catch (err) {
+        console.error('Failed to load classifier detail:', err);
+      }
+    }
+
+    function toggleClassifierPanel(id) {
+      const body = document.getElementById(`body-${id}`);
+      const toggle = document.getElementById(`toggle-${id}`);
+      if (body) {
+        body.classList.toggle('open');
+      }
+      if (toggle) {
+        toggle.classList.toggle('open');
+      }
+    }
 
     function createNIP85TagsPreview(scores, categoryVerifications) {
       if (!scores) return '';

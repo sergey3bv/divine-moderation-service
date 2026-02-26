@@ -188,7 +188,7 @@ export default {
 
       // Check if there are more results
       const hasMore = rows.length > limit;
-      const videos = rows.slice(0, limit).map(row => ({
+      const videoRows = rows.slice(0, limit).map(row => ({
         sha256: row.sha256,
         action: row.action,
         provider: row.provider,
@@ -198,6 +198,30 @@ export default {
         moderated_at: row.moderated_at,
         reviewed_by: row.reviewed_by,
         reviewed_at: row.reviewed_at
+      }));
+
+      // Fetch classifier summaries from KV in parallel
+      const classifierPromises = videoRows.map(async (video) => {
+        try {
+          const raw = await env.MODERATION_KV.get(`classifier:${video.sha256}`);
+          if (!raw) return null;
+          const data = JSON.parse(raw);
+          return {
+            description: data.sceneClassification?.description || null,
+            topics: data.sceneClassification?.topics || null,
+            primaryTopic: data.topicProfile?.primary_topic || null,
+            hasSpeech: data.topicProfile?.has_speech ?? null,
+            mood: data.sceneClassification?.mood || null
+          };
+        } catch {
+          return null;
+        }
+      });
+
+      const classifierResults = await Promise.all(classifierPromises);
+      const videos = videoRows.map((video, i) => ({
+        ...video,
+        classifierSummary: classifierResults[i]
       }));
 
       console.log(`[${requestId}] Returning ${videos.length} videos in ${Date.now() - startTime}ms`);
@@ -738,6 +762,42 @@ export default {
       } catch (error) {
         console.error(`[ADMIN] Failed to fetch Nostr context for ${sha256}:`, error);
         return new Response(JSON.stringify({ found: false, error: error.message }), {
+          status: 500,
+          headers: { 'Content-Type': 'application/json' }
+        });
+      }
+    }
+
+    // Get classifier data for a specific video (admin endpoint)
+    if (url.pathname.startsWith('/admin/api/classifier/')) {
+      const authError = await requireAuth(request, env);
+      if (authError) {
+        return authError;
+      }
+
+      const sha256 = url.pathname.split('/')[4];
+      if (!sha256 || sha256.length !== 64) {
+        return new Response(JSON.stringify({ error: 'Invalid sha256 hash' }), {
+          status: 400,
+          headers: { 'Content-Type': 'application/json' }
+        });
+      }
+
+      try {
+        const classifierData = await env.MODERATION_KV.get(`classifier:${sha256}`);
+        if (!classifierData) {
+          return new Response(JSON.stringify({ sha256, classifier_data: null }), {
+            status: 404,
+            headers: { 'Content-Type': 'application/json' }
+          });
+        }
+
+        return new Response(classifierData, {
+          headers: { 'Content-Type': 'application/json' }
+        });
+      } catch (error) {
+        console.error(`[ADMIN] Error fetching classifier data for ${sha256}:`, error);
+        return new Response(JSON.stringify({ error: error.message }), {
           status: 500,
           headers: { 'Content-Type': 'application/json' }
         });

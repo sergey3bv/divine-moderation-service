@@ -288,6 +288,49 @@
       text-align: center;
     }
 
+    .classifier-summary {
+      background: #111;
+      border: 1px solid #2a2a2a;
+      border-radius: 6px;
+      padding: 10px 12px;
+      margin-bottom: 12px;
+    }
+
+    .classifier-description {
+      font-size: 13px;
+      color: #d0d0d0;
+      line-height: 1.4;
+      margin-bottom: 8px;
+    }
+
+    .classifier-topics {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 5px;
+    }
+
+    .topic-pill {
+      display: inline-block;
+      padding: 2px 8px;
+      background: #1e293b;
+      border: 1px solid #334155;
+      border-radius: 12px;
+      font-size: 11px;
+      color: #94a3b8;
+    }
+
+    .topic-pill.primary {
+      background: #1e3a5f;
+      border-color: #2563eb;
+      color: #93c5fd;
+    }
+
+    .topic-pill.mood {
+      background: #2d1b4e;
+      border-color: #7c3aed;
+      color: #c4b5fd;
+    }
+
     .keyboard-hints kbd {
       display: inline-block;
       padding: 3px 6px;
@@ -522,10 +565,72 @@
           // Auto-play might be blocked, that's ok
         });
       }
+
+      // Async-load classifier data if not already present
+      if (!video.classifierSummary) {
+        fetchClassifierSummary(video.sha256).then(summary => {
+          if (summary && currentIndex < reviewQueue.length && reviewQueue[currentIndex].sha256 === video.sha256) {
+            video.classifierSummary = summary;
+            const existing = card.querySelector('.classifier-summary');
+            if (!existing) {
+              const hashEl = card.querySelector('.video-hash');
+              if (hashEl) {
+                hashEl.insertAdjacentHTML('afterend', createClassifierHTML(summary));
+              }
+            }
+          }
+        });
+      }
+    }
+
+    async function fetchClassifierSummary(sha256) {
+      try {
+        const resp = await fetch(`/admin/api/classifier/${sha256}`);
+        if (!resp.ok) return null;
+        const data = await resp.json();
+        return {
+          description: data.sceneClassification?.description || null,
+          topics: data.sceneClassification?.topics || null,
+          primaryTopic: data.topicProfile?.primary_topic || null,
+          hasSpeech: data.topicProfile?.has_speech ?? null,
+          mood: data.sceneClassification?.mood || null
+        };
+      } catch {
+        return null;
+      }
+    }
+
+    function createClassifierHTML(classifierSummary) {
+      if (!classifierSummary) return '';
+      const { description, topics, primaryTopic, mood, hasSpeech } = classifierSummary;
+      if (!description && !topics?.length && !primaryTopic) return '';
+
+      const pills = [];
+      if (primaryTopic) {
+        pills.push(`<span class="topic-pill primary">${escapeHtml(primaryTopic)}</span>`);
+      }
+      if (topics) {
+        topics.forEach(t => {
+          if (t !== primaryTopic) pills.push(`<span class="topic-pill">${escapeHtml(t)}</span>`);
+        });
+      }
+      if (mood) {
+        pills.push(`<span class="topic-pill mood">${escapeHtml(mood)}</span>`);
+      }
+      if (hasSpeech === true) {
+        pills.push(`<span class="topic-pill">speech</span>`);
+      }
+
+      return `
+        <div class="classifier-summary">
+          ${description ? `<div class="classifier-description">${escapeHtml(description)}</div>` : ''}
+          ${pills.length > 0 ? `<div class="classifier-topics">${pills.join('')}</div>` : ''}
+        </div>
+      `;
     }
 
     function createVideoCard(video) {
-      const { sha256, scores, nostrContext, provider, detailedCategories, isUntriaged, cdnUrl } = video;
+      const { sha256, scores, nostrContext, provider, detailedCategories, isUntriaged, cdnUrl, classifierSummary } = video;
       // For untriaged videos, use CDN URL; for moderated, use admin endpoint
       const videoUrl = isUntriaged
         ? (cdnUrl || 'https://media.divine.video/' + sha256 + '.mp4')
@@ -549,6 +654,9 @@
           </div>
         `;
       }).join('');
+
+      // Classifier summary (VLM description + topics)
+      const classifierHTML = createClassifierHTML(classifierSummary);
 
       // Provider info with AI source detection
       let providerHTML = '';
@@ -608,6 +716,8 @@
 
           <div class="video-info">
             <div class="video-hash">${sha256}</div>
+
+            ${classifierHTML}
 
             ${scoreEntries.length > 0 ? `
               <div class="scores-grid">
