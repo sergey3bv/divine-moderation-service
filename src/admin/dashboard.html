@@ -1323,6 +1323,7 @@
           <button onclick="clearUndo()" style="background: none; border: none; color: #666; cursor: pointer; font-size: 18px;">×</button>
         </div>
         <button class="btn-primary" onclick="window.location.href='/admin/review'" style="background: #2563eb; color: white; border: none; padding: 8px 16px; border-radius: 6px; cursor: pointer;">Quick Review</button>
+        <button onclick="openThresholdsModal()" style="background: #333; color: #e0e0e0; border: none; padding: 8px 16px; border-radius: 6px; cursor: pointer;">Settings</button>
         <button class="logout" onclick="logout()">Logout</button>
       </div>
     </div>
@@ -3269,5 +3270,146 @@
       </div>
     </div>
   </div>
+
+  <!-- Thresholds Settings Modal -->
+  <div id="thresholds-modal" class="modal">
+    <div class="modal-content" style="max-width: 700px;">
+      <div class="modal-header">
+        <h2>Moderation Thresholds</h2>
+        <button class="modal-close" onclick="closeThresholdsModal()">&times;</button>
+      </div>
+      <div style="padding: 20px;">
+        <div style="margin-bottom: 15px; font-size: 13px; color: #888; line-height: 1.5;">
+          <strong>High</strong> = auto-action (ban/age-restrict). <strong>Medium</strong> = flagged for review.<br>
+          Changes apply to new moderations immediately (no redeploy needed).
+        </div>
+        <div id="thresholds-source" style="margin-bottom: 15px; font-size: 12px;"></div>
+        <div id="thresholds-form" style="display: grid; grid-template-columns: 1fr 1fr; gap: 12px;"></div>
+        <div id="thresholds-error" style="color: #ef4444; font-size: 13px; margin-top: 10px; display: none;"></div>
+      </div>
+      <div class="modal-footer" style="display: flex; justify-content: space-between; padding: 15px 20px; border-top: 1px solid #333;">
+        <button onclick="resetThresholds()" style="background: #333; color: #e0e0e0; border: none; padding: 8px 16px; border-radius: 6px; cursor: pointer;">Reset to Defaults</button>
+        <div style="display: flex; gap: 10px;">
+          <button class="btn-cancel" onclick="closeThresholdsModal()">Cancel</button>
+          <button class="btn-save" onclick="saveThresholds()">Save</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    const THRESHOLD_CATEGORIES = {
+      nudity: 'Nudity / NSFW',
+      violence: 'Violence',
+      gore: 'Gore',
+      offensive: 'Offensive / Hate',
+      weapon: 'Weapons',
+      self_harm: 'Self-Harm',
+      recreational_drug: 'Drugs',
+      ai_generated: 'AI-Generated',
+      deepfake: 'Deepfake'
+    };
+
+    let currentThresholds = null;
+    let defaultThresholds = null;
+
+    async function openThresholdsModal() {
+      document.getElementById('thresholds-modal').classList.add('show');
+      document.getElementById('thresholds-form').innerHTML = '<div style="color: #888;">Loading...</div>';
+
+      try {
+        const resp = await fetch('/admin/api/thresholds');
+        if (resp.status === 401) { window.location.href = '/admin/login'; return; }
+        const data = await resp.json();
+        currentThresholds = data.thresholds;
+        defaultThresholds = data.defaults;
+
+        document.getElementById('thresholds-source').innerHTML = data.source === 'admin'
+          ? '<span style="color: #22c55e;">Using admin-configured thresholds</span>'
+          : '<span style="color: #888;">Using default thresholds</span>';
+
+        renderThresholdsForm();
+      } catch (err) {
+        document.getElementById('thresholds-form').innerHTML = '<div style="color: #ef4444;">Failed to load: ' + err.message + '</div>';
+      }
+    }
+
+    function renderThresholdsForm() {
+      const form = document.getElementById('thresholds-form');
+      form.innerHTML = Object.entries(THRESHOLD_CATEGORIES).map(function([key, label]) {
+        const t = currentThresholds[key] || { high: 0.8, medium: 0.6 };
+        const d = defaultThresholds[key] || { high: 0.8, medium: 0.6 };
+        const isCustomHigh = t.high !== d.high;
+        const isCustomMed = t.medium !== d.medium;
+        return '<div style="background: #111; padding: 12px; border-radius: 6px; border: 1px solid #2a2a2a;">'
+          + '<div style="font-size: 13px; color: #e0e0e0; font-weight: 600; margin-bottom: 8px;">' + label + '</div>'
+          + '<div style="display: flex; gap: 10px;">'
+          + '<div style="flex: 1;">'
+          + '<label style="font-size: 10px; color: ' + (isCustomHigh ? '#f59e0b' : '#666') + ';">HIGH ' + (isCustomHigh ? '(custom)' : '') + '</label>'
+          + '<input type="number" min="0" max="1" step="0.05" value="' + t.high + '"'
+          + ' data-category="' + key + '" data-level="high"'
+          + ' style="width: 100%; background: #1a1a1a; color: #e0e0e0; border: 1px solid ' + (isCustomHigh ? '#f59e0b' : '#333') + '; padding: 6px; border-radius: 4px; font-size: 14px;">'
+          + '</div>'
+          + '<div style="flex: 1;">'
+          + '<label style="font-size: 10px; color: ' + (isCustomMed ? '#f59e0b' : '#666') + ';">MEDIUM ' + (isCustomMed ? '(custom)' : '') + '</label>'
+          + '<input type="number" min="0" max="1" step="0.05" value="' + t.medium + '"'
+          + ' data-category="' + key + '" data-level="medium"'
+          + ' style="width: 100%; background: #1a1a1a; color: #e0e0e0; border: 1px solid ' + (isCustomMed ? '#f59e0b' : '#333') + '; padding: 6px; border-radius: 4px; font-size: 14px;">'
+          + '</div>'
+          + '</div>'
+          + '</div>';
+      }).join('');
+    }
+
+    function closeThresholdsModal() {
+      document.getElementById('thresholds-modal').classList.remove('show');
+    }
+
+    async function saveThresholds() {
+      const errorEl = document.getElementById('thresholds-error');
+      errorEl.style.display = 'none';
+
+      const thresholds = Object.assign({}, currentThresholds);
+      document.querySelectorAll('#thresholds-form input[data-category]').forEach(function(input) {
+        const cat = input.dataset.category;
+        const level = input.dataset.level;
+        const val = parseFloat(input.value);
+        if (isNaN(val) || val < 0 || val > 1) return;
+        if (!thresholds[cat]) thresholds[cat] = {};
+        thresholds[cat][level] = val;
+      });
+
+      try {
+        const resp = await fetch('/admin/api/thresholds', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ thresholds: thresholds })
+        });
+        const data = await resp.json();
+        if (!resp.ok) {
+          errorEl.textContent = data.error || 'Failed to save';
+          errorEl.style.display = 'block';
+          return;
+        }
+        currentThresholds = data.thresholds;
+        closeThresholdsModal();
+      } catch (err) {
+        errorEl.textContent = err.message;
+        errorEl.style.display = 'block';
+      }
+    }
+
+    async function resetThresholds() {
+      if (!confirm('Reset all thresholds to defaults?')) return;
+      try {
+        await fetch('/admin/api/thresholds/reset', { method: 'POST' });
+        currentThresholds = JSON.parse(JSON.stringify(defaultThresholds));
+        document.getElementById('thresholds-source').innerHTML = '<span style="color: #888;">Using default thresholds</span>';
+        renderThresholdsForm();
+      } catch (err) {
+        alert('Failed to reset: ' + err.message);
+      }
+    }
+  </script>
 </body>
 </html>

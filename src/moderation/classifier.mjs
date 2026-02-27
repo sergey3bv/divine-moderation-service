@@ -39,11 +39,97 @@ const AGE_RESTRICTED_CATEGORIES = ['nudity', 'violence', 'gore', 'weapon', 'recr
 const INFORMATIONAL_CATEGORIES = ['medical', 'money', 'military', 'text_profanity', 'qr_unsafe'];
 
 /**
+ * KV key for admin-configurable thresholds
+ */
+const THRESHOLDS_KV_KEY = 'admin:thresholds';
+
+/**
+ * Default thresholds config (exported for admin settings API)
+ */
+export const DEFAULT_THRESHOLDS = {
+  nudity: { high: DEFAULT_NSFW_HIGH, medium: DEFAULT_NSFW_MEDIUM },
+  violence: { high: DEFAULT_VIOLENCE_HIGH, medium: DEFAULT_VIOLENCE_MEDIUM },
+  ai_generated: { high: DEFAULT_AI_GENERATED_HIGH, medium: DEFAULT_AI_GENERATED_MEDIUM },
+  deepfake: { high: DEFAULT_DEEPFAKE_HIGH, medium: DEFAULT_DEEPFAKE_MEDIUM },
+  gore: { high: DEFAULT_GORE_HIGH, medium: DEFAULT_GORE_MEDIUM },
+  offensive: { high: DEFAULT_OFFENSIVE_HIGH, medium: DEFAULT_OFFENSIVE_MEDIUM },
+  weapon: { high: DEFAULT_WEAPON_HIGH, medium: DEFAULT_WEAPON_MEDIUM },
+  recreational_drug: { high: DEFAULT_DRUG_HIGH, medium: DEFAULT_DRUG_MEDIUM },
+  self_harm: { high: DEFAULT_SELF_HARM_HIGH, medium: DEFAULT_SELF_HARM_MEDIUM },
+  alcohol: { high: 0.8, medium: 0.6 },
+  tobacco: { high: 0.8, medium: 0.6 },
+  gambling: { high: 0.8, medium: 0.6 },
+  destruction: { high: 0.8, medium: 0.6 },
+  military: { high: 0.8, medium: 0.6 },
+  medical: { high: 0.8, medium: 0.6 },
+  money: { high: 0.8, medium: 0.6 },
+  text_profanity: { high: 0.8, medium: 0.6 },
+  qr_unsafe: { high: 0.8, medium: 0.6 }
+};
+
+/**
+ * Fetch admin-configured thresholds from KV, returning null if not set
+ * @param {Object} kv - MODERATION_KV namespace
+ * @returns {Object|null} Thresholds object or null
+ */
+export async function getKVThresholds(kv) {
+  try {
+    const raw = await kv.get(THRESHOLDS_KV_KEY);
+    if (!raw) return null;
+    return JSON.parse(raw);
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Save admin-configured thresholds to KV
+ * @param {Object} kv - MODERATION_KV namespace
+ * @param {Object} thresholds - Thresholds to save
+ */
+export async function setKVThresholds(kv, thresholds) {
+  await kv.put(THRESHOLDS_KV_KEY, JSON.stringify(thresholds));
+}
+
+/**
+ * Build env-like threshold overrides from KV thresholds
+ * Maps { nudity: { high: 0.9, medium: 0.7 } } to { NSFW_THRESHOLD_HIGH: '0.9', ... }
+ * @param {Object} kvThresholds - KV thresholds
+ * @returns {Object} env-var-style overrides
+ */
+export function kvThresholdsToEnv(kvThresholds) {
+  if (!kvThresholds) return {};
+  const envMap = {
+    nudity: 'NSFW',
+    violence: 'VIOLENCE',
+    ai_generated: 'AI_GENERATED',
+    deepfake: 'DEEPFAKE',
+    gore: 'GORE',
+    offensive: 'OFFENSIVE',
+    weapon: 'WEAPON',
+    recreational_drug: 'DRUG',
+    self_harm: 'SELF_HARM'
+  };
+  const overrides = {};
+  for (const [category, prefix] of Object.entries(envMap)) {
+    if (kvThresholds[category]) {
+      if (kvThresholds[category].high !== undefined) {
+        overrides[`${prefix}_THRESHOLD_HIGH`] = String(kvThresholds[category].high);
+      }
+      if (kvThresholds[category].medium !== undefined) {
+        overrides[`${prefix}_THRESHOLD_MEDIUM`] = String(kvThresholds[category].medium);
+      }
+    }
+  }
+  return overrides;
+}
+
+/**
  * Classify moderation result into action categories
  * @param {Object} moderationData - Result from moderation service
  * @param {Object} moderationData.maxScores - All category scores
  * @param {Array} [moderationData.flaggedFrames] - Frames that exceeded thresholds
- * @param {Object} [env] - Environment variables with threshold config
+ * @param {Object} [env] - Environment variables with threshold config (KV overrides merged in)
  * @returns {Object} Classification result with action and severity
  */
 export function classifyModerationResult(moderationData, env = {}) {

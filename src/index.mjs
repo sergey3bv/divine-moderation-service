@@ -17,6 +17,7 @@ import { initReportsTable, addReport } from './reports.mjs';
 import { initOffenderTable, updateUploaderStats, getUploaderStats } from './offender-tracker.mjs';
 import { formatForStorage, formatForGorse, formatForFunnelcake } from './classification/pipeline.mjs';
 import { topicsToLabels, topicsToWeightedFeatures } from './classification/topic-extractor.mjs';
+import { getKVThresholds, setKVThresholds, DEFAULT_THRESHOLDS } from './moderation/classifier.mjs';
 /**
  * NIP-32 label mapping for content categories
  * Maps internal category names to NIP-32/NIP-56 compatible labels
@@ -802,6 +803,78 @@ export default {
           headers: { 'Content-Type': 'application/json' }
         });
       }
+    }
+
+    // Get current moderation thresholds (KV overrides + defaults)
+    if (url.pathname === '/admin/api/thresholds' && request.method === 'GET') {
+      const authError = await requireAuth(request, env);
+      if (authError) return authError;
+
+      const kvThresholds = await getKVThresholds(env.MODERATION_KV);
+      return new Response(JSON.stringify({
+        thresholds: kvThresholds || DEFAULT_THRESHOLDS,
+        source: kvThresholds ? 'admin' : 'defaults',
+        defaults: DEFAULT_THRESHOLDS
+      }), {
+        headers: { 'Content-Type': 'application/json' }
+      });
+    }
+
+    // Update moderation thresholds (saves to KV)
+    if (url.pathname === '/admin/api/thresholds' && request.method === 'POST') {
+      const authError = await requireAuth(request, env);
+      if (authError) return authError;
+
+      const { thresholds } = await request.json();
+      if (!thresholds || typeof thresholds !== 'object') {
+        return new Response(JSON.stringify({ error: 'thresholds object required' }), {
+          status: 400,
+          headers: { 'Content-Type': 'application/json' }
+        });
+      }
+
+      // Validate threshold values
+      for (const [category, values] of Object.entries(thresholds)) {
+        if (typeof values !== 'object') continue;
+        if (values.high !== undefined && (typeof values.high !== 'number' || values.high < 0 || values.high > 1)) {
+          return new Response(JSON.stringify({ error: `Invalid high threshold for ${category}: must be 0-1` }), {
+            status: 400,
+            headers: { 'Content-Type': 'application/json' }
+          });
+        }
+        if (values.medium !== undefined && (typeof values.medium !== 'number' || values.medium < 0 || values.medium > 1)) {
+          return new Response(JSON.stringify({ error: `Invalid medium threshold for ${category}: must be 0-1` }), {
+            status: 400,
+            headers: { 'Content-Type': 'application/json' }
+          });
+        }
+        if (values.high !== undefined && values.medium !== undefined && values.medium >= values.high) {
+          return new Response(JSON.stringify({ error: `${category}: medium (${values.medium}) must be less than high (${values.high})` }), {
+            status: 400,
+            headers: { 'Content-Type': 'application/json' }
+          });
+        }
+      }
+
+      await setKVThresholds(env.MODERATION_KV, thresholds);
+      console.log(`[ADMIN] Thresholds updated by admin`);
+
+      return new Response(JSON.stringify({ success: true, thresholds }), {
+        headers: { 'Content-Type': 'application/json' }
+      });
+    }
+
+    // Reset thresholds to defaults
+    if (url.pathname === '/admin/api/thresholds/reset' && request.method === 'POST') {
+      const authError = await requireAuth(request, env);
+      if (authError) return authError;
+
+      await env.MODERATION_KV.delete('admin:thresholds');
+      console.log(`[ADMIN] Thresholds reset to defaults`);
+
+      return new Response(JSON.stringify({ success: true, thresholds: DEFAULT_THRESHOLDS, source: 'defaults' }), {
+        headers: { 'Content-Type': 'application/json' }
+      });
     }
 
     // Get relay polling status

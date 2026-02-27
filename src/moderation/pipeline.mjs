@@ -5,7 +5,7 @@
 // ABOUTME: Coordinates video analysis and classification using pluggable providers
 
 import { moderateWithFallback } from './providers/index.mjs';
-import { classifyModerationResult } from './classifier.mjs';
+import { classifyModerationResult, getKVThresholds, kvThresholdsToEnv } from './classifier.mjs';
 import { classifyText, parseVttText } from './text-classifier.mjs';
 import { fetchNostrEventBySha256, parseVideoEventMetadata, isOriginalVine } from '../nostr/relay-client.mjs';
 import { classifyVideo } from '../classification/pipeline.mjs';
@@ -159,11 +159,21 @@ export async function moderateVideo(videoData, env, fetchFn = fetch) {
   }
 
   // Step 4: Classify result into action categories
+  // Merge KV-based admin thresholds over env vars (KV takes priority)
+  let effectiveEnv = env;
+  try {
+    const kvThresholds = await getKVThresholds(env.MODERATION_KV);
+    if (kvThresholds) {
+      effectiveEnv = { ...env, ...kvThresholdsToEnv(kvThresholds) };
+    }
+  } catch (e) {
+    console.warn('[MODERATION] Failed to load KV thresholds, using env defaults:', e.message);
+  }
   const classification = classifyModerationResult({
     maxScores: moderationResult.scores,
     flaggedFrames: moderationResult.flaggedFrames,
     text_scores: textScores
-  }, env);
+  }, effectiveEnv);
 
   // Step 5: Return complete result
   return {
