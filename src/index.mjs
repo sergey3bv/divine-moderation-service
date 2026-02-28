@@ -614,16 +614,33 @@ export default {
         });
       }
 
-      // Get existing moderation result
+      // Get existing moderation result — check KV first, fall back to D1
+      let existing = null;
       const existingData = await env.MODERATION_KV.get(`moderation:${sha256}`);
-      if (!existingData) {
+      if (existingData) {
+        existing = JSON.parse(existingData);
+      } else {
+        // Fall back to D1
+        const d1Row = await env.BLOSSOM_DB.prepare(
+          'SELECT sha256, action, provider, scores, categories, moderated_at, reviewed_by, reviewed_at FROM moderation_results WHERE sha256 = ?'
+        ).bind(sha256).first();
+        if (d1Row) {
+          existing = {
+            action: d1Row.action,
+            scores: d1Row.scores ? JSON.parse(d1Row.scores) : {},
+            provider: d1Row.provider,
+            categories: d1Row.categories ? JSON.parse(d1Row.categories) : [],
+            moderated_at: d1Row.moderated_at
+          };
+        }
+      }
+
+      if (!existing) {
         return new Response(JSON.stringify({ error: 'Moderation result not found for this video' }), {
           status: 404,
           headers: { 'Content-Type': 'application/json' }
         });
       }
-
-      const existing = JSON.parse(existingData);
       const previousAction = existing.action;
 
       // Update category verifications
@@ -939,38 +956,46 @@ export default {
       }
 
       const sha256 = url.pathname.split('/')[3].replace('.mp4', '');
-      const blossomUrl = `https://${env.CDN_DOMAIN}/${sha256}`;
-      console.log(`[ADMIN] Fetching video from Blossom: ${blossomUrl}`);
+
+      // Use Blossom's dedicated admin content endpoint — bypasses moderation status checks
+      // and avoids Fastly VCL cache which caches 404s for blocked content on public paths
+      const fetchHeaders = {};
+      if (env.BLOSSOM_WEBHOOK_SECRET) {
+        fetchHeaders['Authorization'] = `Bearer ${env.BLOSSOM_WEBHOOK_SECRET}`;
+      }
+
+      const blossomUrl = `https://${env.CDN_DOMAIN}/admin/api/blob/${sha256}/content`;
+      console.log(`[ADMIN] Fetching video from Blossom admin endpoint: ${blossomUrl}`);
 
       try {
-        const fetchHeaders = {};
-        if (env.BLOSSOM_WEBHOOK_SECRET) {
-          fetchHeaders['Authorization'] = `Bearer ${env.BLOSSOM_WEBHOOK_SECRET}`;
-        }
         const blossomResponse = await fetch(blossomUrl, { headers: fetchHeaders });
+
         if (blossomResponse.ok) {
-          console.log(`[ADMIN] Serving video from Blossom: ${sha256}`);
+          console.log(`[ADMIN] Serving video from Blossom admin endpoint: ${sha256}`);
           const moderationStatus = blossomResponse.headers.get('X-Moderation-Status');
           return new Response(blossomResponse.body, {
             headers: {
               'Content-Type': blossomResponse.headers.get('Content-Type') || 'video/mp4',
               'Cache-Control': 'private, no-store',
-              'X-Admin-Proxy': 'blossom',
+              'X-Admin-Proxy': 'blossom-admin',
               ...(moderationStatus && { 'X-Moderation-Status': moderationStatus })
             }
           });
         }
-        console.error(`[ADMIN] Blossom returned ${blossomResponse.status} for ${sha256}`);
+
+        const errorBody = await blossomResponse.text();
+        console.error(`[ADMIN] Blossom admin endpoint returned ${blossomResponse.status} for ${sha256}: ${errorBody}`);
         return new Response(JSON.stringify({
-          error: 'Video not found',
+          error: 'Video not accessible',
           sha256,
-          blossomStatus: blossomResponse.status
+          blossomStatus: blossomResponse.status,
+          details: errorBody
         }), {
-          status: 404,
+          status: blossomResponse.status,
           headers: { 'Content-Type': 'application/json' }
         });
       } catch (error) {
-        console.error(`[ADMIN] Blossom fetch error for ${sha256}:`, error);
+        console.error(`[ADMIN] Blossom admin endpoint error for ${sha256}:`, error);
         return new Response(JSON.stringify({
           error: 'Failed to fetch video from Blossom',
           sha256,
@@ -1619,17 +1644,28 @@ async function runMigration() {
         });
       }
 
-      // Require authentication (Zero Trust JWT or dev access)
+      // Require authentication (Zero Trust JWT, bearer token, or dev access)
       let verification = { valid: false, error: 'Not verified' };
       if (env.ALLOW_DEV_ACCESS === 'true') {
         verification = { valid: true, email: 'dev@localhost', isServiceToken: false };
       } else {
-        const jwtToken = request.headers.get('cf-access-jwt-assertion');
-        if (jwtToken) {
-          try {
-            verification = await verifyZeroTrustJWT(jwtToken, env);
-          } catch (e) {
-            verification = { valid: false, error: e.message };
+        // Check bearer token auth first (for service-to-service calls via workers.dev)
+        const authHeader = request.headers.get('Authorization');
+        if (authHeader && authHeader.startsWith('Bearer ') && env.SERVICE_API_TOKEN) {
+          const token = authHeader.slice(7);
+          if (token === env.SERVICE_API_TOKEN) {
+            verification = { valid: true, email: 'service@internal', isServiceToken: true };
+          }
+        }
+        // Fall back to Zero Trust JWT (for requests via CF Access edge)
+        if (!verification.valid) {
+          const jwtToken = request.headers.get('cf-access-jwt-assertion');
+          if (jwtToken) {
+            try {
+              verification = await verifyZeroTrustJWT(jwtToken, env);
+            } catch (e) {
+              verification = { valid: false, error: e.message };
+            }
           }
         }
       }
