@@ -549,20 +549,20 @@ export default {
         await env.MODERATION_KV.put(`permanent-ban:${sha256}`, kvPayload);
       }
 
-      // Notify Blossom and relay of the moderation decision
-      const [blossomResult, relayResult] = await Promise.all([
-        notifyBlossom(sha256, action, env),
-        notifyRelay(sha256, action, env)
-      ]);
+      // Notify Blossom of the moderation decision.
+      // Relay notification intentionally removed: notifyRelay() called /api/admin/purge
+      // which never existed in divine-relay-manager. There's no relay-manager endpoint
+      // that accepts a sha256 and propagates enforcement to Funnelcake (the missing link
+      // is sha256-to-event-ID lookup). Osprey's rules pipeline will handle relay-side
+      // enforcement when operational, since it sees events in Kafka and can correlate
+      // media hashes to event IDs natively.
+      const blossomResult = await notifyBlossom(sha256, action, env);
 
       if (!blossomResult.success && !blossomResult.skipped) {
         console.warn(`[ADMIN] Blossom notification failed: ${blossomResult.error}`);
       }
-      if (!relayResult.success && !relayResult.skipped) {
-        console.warn(`[ADMIN] Relay purge notification failed: ${relayResult.error}`);
-      }
 
-      console.log(`[ADMIN] Updated ${sha256} from ${previousAction} to ${action} (blossom: ${blossomResult.success}, relay: ${relayResult.success})`);
+      console.log(`[ADMIN] Updated ${sha256} from ${previousAction} to ${action} (blossom: ${blossomResult.success})`);
 
       return new Response(JSON.stringify({
         success: true,
@@ -570,8 +570,7 @@ export default {
         action,
         previousAction,
         message: `Content updated to ${action}`,
-        blossom_notified: blossomResult.success || false,
-        relay_notified: relayResult.success || false
+        blossom_notified: blossomResult.success || false
       }), {
         headers: { 'Content-Type': 'application/json' }
       });
@@ -1807,11 +1806,8 @@ async function runMigration() {
           }), { expirationTtl: 60 * 60 * 24 * 90 });
         }
 
-        // Notify blossom and relay
-        const [blossomResult, relayResult] = await Promise.all([
-          notifyBlossom(sha256, newAction, env),
-          notifyRelay(sha256, newAction, env)
-        ]);
+        // Notify Blossom (relay notification removed — see comment in admin moderate handler)
+        const blossomResult = await notifyBlossom(sha256, newAction, env);
 
         console.log(`[API] Quarantine updated: ${sha256} -> ${newAction} by ${authSource}`);
 
@@ -1820,8 +1816,7 @@ async function runMigration() {
           sha256,
           action: newAction,
           updated_at: new Date().toISOString(),
-          blossom_notified: blossomResult.success || false,
-          relay_notified: relayResult.success || false
+          blossom_notified: blossomResult.success || false
         }), {
           headers: { 'Content-Type': 'application/json' }
         });
@@ -2310,17 +2305,11 @@ async function handleModerationResult(result, env) {
     console.log(`[MODERATION] ${sha256} approved (no notification needed)`);
   }
 
-  // Notify divine-blossom and relay of moderation decision (in parallel)
-  const [blossomResult, relayResult] = await Promise.all([
-    notifyBlossom(sha256, action, env),
-    notifyRelay(sha256, action, env)
-  ]);
+  // Notify Blossom (relay notification removed — see comment in admin moderate handler)
+  const blossomResult = await notifyBlossom(sha256, action, env);
 
   if (!blossomResult.success && !blossomResult.skipped) {
     console.warn(`[MODERATION] Blossom notification failed: ${blossomResult.error}`);
-  }
-  if (!relayResult.success && !relayResult.skipped) {
-    console.warn(`[MODERATION] Relay purge notification failed: ${relayResult.error}`);
   }
 
   console.log(`[MODERATION] handleModerationResult finished for ${sha256}`);
@@ -2379,55 +2368,3 @@ async function notifyBlossom(sha256, action, env) {
   }
 }
 
-/**
- * Notify Funnelcake relay to purge cached content after moderation action
- * Fire-and-forget — parallel to notifyBlossom
- * @param {string} sha256 - The content hash
- * @param {string} action - The moderation action
- * @param {Object} env - Environment with RELAY_ADMIN_URL and CF Access credentials
- * @returns {Promise<{success: boolean, error?: string}>}
- */
-async function notifyRelay(sha256, action, env) {
-  if (!env.RELAY_ADMIN_URL) {
-    console.log('[RELAY] Admin URL not configured, skipping relay notification');
-    return { success: true, skipped: true };
-  }
-
-  try {
-    const headers = {
-      'Content-Type': 'application/json',
-    };
-
-    // Add CF Access headers for authentication
-    if (env.CF_ACCESS_CLIENT_ID && env.CF_ACCESS_CLIENT_SECRET) {
-      headers['CF-Access-Client-Id'] = env.CF_ACCESS_CLIENT_ID;
-      headers['CF-Access-Client-Secret'] = env.CF_ACCESS_CLIENT_SECRET;
-    }
-
-    console.log(`[RELAY] Notifying relay to purge ${sha256} (action: ${action})`);
-
-    const response = await fetch(`${env.RELAY_ADMIN_URL}/api/admin/purge`, {
-      method: 'POST',
-      headers,
-      body: JSON.stringify({
-        sha256,
-        action,
-        timestamp: new Date().toISOString(),
-      }),
-    });
-
-    if (!response.ok) {
-      const errorText = await response.text();
-      console.error(`[RELAY] Purge request failed: ${response.status} - ${errorText}`);
-      return { success: false, error: `HTTP ${response.status}: ${errorText}` };
-    }
-
-    const result = await response.json();
-    console.log(`[RELAY] Purge succeeded for ${sha256}:`, result);
-    return { success: true, result };
-
-  } catch (error) {
-    console.error(`[RELAY] Purge error for ${sha256}:`, error);
-    return { success: false, error: error.message };
-  }
-}
