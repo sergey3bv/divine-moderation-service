@@ -562,6 +562,35 @@ export default {
         console.warn(`[ADMIN] Blossom notification failed: ${blossomResult.error}`);
       }
 
+      // Publish kind 1984 (NIP-56) report for non-SAFE actions so human moderation
+      // decisions are visible to Osprey and other Nostr event consumers. Without this,
+      // only AI classifications (via handleModerationResult) were published; human
+      // overrides from the swipe review UI were invisible to the relay.
+      let reportPublished = false;
+      if (action !== 'SAFE') {
+        try {
+          const reportData = {
+            type: action.toLowerCase().replace('_', '-'),
+            sha256,
+            cdnUrl: existing.cdnUrl,
+            category: existing.category || updated.category,
+            scores: updated.scores || {},
+            reason: reason || `Manual override by moderator (${previousAction} → ${action})`,
+            severity: action === 'PERMANENT_BAN' ? 'high' : 'medium',
+            source: 'human-moderator'
+          };
+          await publishToFaro(reportData, env);
+          await publishToContentRelay(reportData, env).catch(
+            (err) => console.error(`[ADMIN] Content relay publish failed:`, err)
+          );
+          reportPublished = true;
+          console.log(`[ADMIN] Published kind 1984 report for ${sha256} (${action}, human-moderator)`);
+        } catch (error) {
+          console.error(`[ADMIN] Failed to publish kind 1984 report:`, error);
+          // Non-fatal: don't fail the moderation action over a publish failure
+        }
+      }
+
       console.log(`[ADMIN] Updated ${sha256} from ${previousAction} to ${action} (blossom: ${blossomResult.success})`);
 
       return new Response(JSON.stringify({
@@ -570,7 +599,8 @@ export default {
         action,
         previousAction,
         message: `Content updated to ${action}`,
-        blossom_notified: blossomResult.success || false
+        blossom_notified: blossomResult.success || false,
+        report_published: reportPublished
       }), {
         headers: { 'Content-Type': 'application/json' }
       });

@@ -138,7 +138,7 @@ export async function publishToContentRelay(report, env, mockRelay = null) {
  * @returns {Object} Signed Nostr event
  */
 function createReportEvent(report, privateKeyHex) {
-  const { sha256, scores, reason, cdnUrl, type } = report;
+  const { sha256, scores, reason, cdnUrl, type, source } = report;
 
   // Determine label based on primary concern
   let label = 'NS'; // Not Safe (NSFW)
@@ -164,6 +164,7 @@ function createReportEvent(report, privateKeyHex) {
     reason: reason || `${type} flagged by automated moderation`,
     scores,
     type,
+    source: source || 'ai',
     timestamp: Date.now()
   }, null, 2);
 
