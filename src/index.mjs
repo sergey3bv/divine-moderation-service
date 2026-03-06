@@ -103,6 +103,23 @@ export default {
     // Log all incoming requests
     console.log(`[${requestId}] ${request.method} ${url.pathname}${url.search ? '?' + url.search.substring(0, 100) : ''}`);
 
+    // Block unauthenticated requests on workers.dev (bypass CF Access)
+    // Requests via custom domain go through CF Access at the edge.
+    // Workers.dev requests must include a valid Bearer token.
+    const hostname = url.hostname;
+    if (hostname.endsWith('.workers.dev')) {
+      const authHeader = request.headers.get('Authorization');
+      const token = authHeader && authHeader.startsWith('Bearer ') ? authHeader.slice(7) : null;
+      const isHealthCheck = url.pathname === '/health' || url.pathname === '/';
+      if (!isHealthCheck && (!token || !env.SERVICE_API_TOKEN || token !== env.SERVICE_API_TOKEN)) {
+        console.log(`[${requestId}] Blocked unauthenticated workers.dev request to ${url.pathname}`);
+        return new Response(JSON.stringify({ error: 'Unauthorized — Bearer token required' }), {
+          status: 401,
+          headers: { 'Content-Type': 'application/json' }
+        });
+      }
+    }
+
     // Ensure reports table exists
     await initReportsTable(env.BLOSSOM_DB);
 
