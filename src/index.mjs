@@ -25,6 +25,7 @@ import { topicsToLabels, topicsToWeightedFeatures } from './classification/topic
 import { getKVThresholds, setKVThresholds, DEFAULT_THRESHOLDS } from './moderation/classifier.mjs';
 import { isValidSha256, isValidLookupIdentifier, isValidPubkey, parseMaybeJson, getEventTagValue, parseImetaParams, extractShaFromUrl, extractMediaShaFromEvent } from './validation.mjs';
 import { parseVttText } from './moderation/text-classifier.mjs';
+import { notifyAtprotoLabeler } from './atproto/label-webhook.mjs';
 /**
  * NIP-32 label mapping for content categories
  * Maps internal category names to NIP-32/NIP-56 compatible labels
@@ -1395,6 +1396,11 @@ export default {
         }
       }
 
+      // Notify ATProto labeler of manual override
+      notifyAtprotoLabeler({ sha256, action, scores: updated.scores || {}, reviewed_by: 'admin' }, env).catch(err => {
+        console.error('[ADMIN] ATProto labeler notification failed:', err.message);
+      });
+
       return new Response(JSON.stringify({
         success: true,
         sha256,
@@ -1563,6 +1569,29 @@ export default {
         labelEvent: labelResult
       }), {
         headers: { 'Content-Type': 'application/json' }
+      });
+    }
+
+    // GET /admin/api/inbound-labels — list pending inbound ATProto labels
+    if (url.pathname === '/admin/api/inbound-labels' && request.method === 'GET') {
+      const authError = await requireAuth(request, env);
+      if (authError) return authError;
+      // Query pending inbound labels from bridge DB via REST
+      // For MVP: query the bridge DB's inbound_labels table via its API
+      // This will be wired once the Rust labeler has an HTTP API
+      return new Response(JSON.stringify({ labels: [], message: 'Pending bridge DB integration' }), {
+        headers: { 'Content-Type': 'application/json' },
+      });
+    }
+
+    // POST /admin/api/inbound-labels/:id/approve — approve an inbound label for Nostr propagation
+    if (url.pathname.match(/^\/admin\/api\/inbound-labels\/\d+\/approve$/) && request.method === 'POST') {
+      const authError = await requireAuth(request, env);
+      if (authError) return authError;
+      // For MVP: stub - will call bridge DB API to update review_state
+      // Then publish NIP-32 label to Nostr via existing publishLabelEvent()
+      return new Response(JSON.stringify({ status: 'approved', message: 'Pending bridge DB integration' }), {
+        headers: { 'Content-Type': 'application/json' },
       });
     }
 
@@ -3498,6 +3527,11 @@ async function handleModerationResult(result, env) {
   } catch (err) {
     console.error('[MODERATION] Failed to write moderation labels:', err.message);
   }
+
+  // Notify ATProto labeler service (fire-and-forget)
+  notifyAtprotoLabeler({ sha256, action, scores, reviewed_by: result.reviewed_by }, env).catch(err => {
+    console.error('[MODERATION] ATProto labeler notification failed:', err.message);
+  });
 
   console.log(`[MODERATION] handleModerationResult finished for ${sha256}`);
 }
