@@ -2652,6 +2652,80 @@ async function runMigration() {
       }
     }
 
+    // API: Send DM notification only (no Blossom/D1 moderation side effects)
+    // Used by relay-manager to notify users after NIP-86 moderation actions
+    // Auth: Bearer token or Cloudflare Access JWT
+    if (url.pathname === '/api/v1/notify' && request.method === 'POST') {
+      const verification = await authenticateApiRequest(request, env);
+      if (!verification.valid) {
+        console.log(`[API] Authentication failed for /api/v1/notify: ${verification.error}`);
+        return apiUnauthorizedResponse(verification);
+      }
+
+      try {
+        const body = await request.json();
+        const { recipientPubkey, action, reason, sha256, eventId } = body;
+
+        if (!isValidPubkey(recipientPubkey)) {
+          return new Response(JSON.stringify({ error: 'Valid recipientPubkey (64-char hex) required' }), {
+            status: 400,
+            headers: { 'Content-Type': 'application/json' }
+          });
+        }
+
+        if (!action || typeof action !== 'string') {
+          return new Response(JSON.stringify({ error: 'action required' }), {
+            status: 400,
+            headers: { 'Content-Type': 'application/json' }
+          });
+        }
+
+        const validNotifyActions = ['PERMANENT_BAN', 'AGE_RESTRICTED', 'QUARANTINE', 'ACCOUNT_SUSPENDED', 'REPORT_OUTCOME_ACTION', 'REPORT_OUTCOME_NO_ACTION'];
+        if (!validNotifyActions.includes(action)) {
+          return new Response(JSON.stringify({
+            error: `Invalid action. Must be one of: ${validNotifyActions.join(', ')}`
+          }), {
+            status: 400,
+            headers: { 'Content-Type': 'application/json' }
+          });
+        }
+
+        if (!env.NOSTR_PRIVATE_KEY) {
+          console.warn('[API] /api/v1/notify called but NOSTR_PRIVATE_KEY not configured');
+          return new Response(JSON.stringify({ success: true, dm_sent: false, reason: 'DM sending not configured' }), {
+            headers: { 'Content-Type': 'application/json' }
+          });
+        }
+
+        const { sendModerationDM } = await import('./nostr/dm-sender.mjs');
+        const dmResult = await sendModerationDM(
+          recipientPubkey,
+          sha256 || null,
+          action,
+          reason || null,
+          env,
+          null
+        );
+
+        const authSource = authSourceFromVerification(verification);
+        console.log(`[API] /api/v1/notify: action=${action} recipient=${recipientPubkey.substring(0, 16)}... dm_sent=${dmResult.sent} (auth: ${authSource})${eventId ? ` eventId=${eventId}` : ''}`);
+
+        return new Response(JSON.stringify({
+          success: true,
+          dm_sent: dmResult.sent,
+          reason: dmResult.reason || null
+        }), {
+          headers: { 'Content-Type': 'application/json' }
+        });
+      } catch (error) {
+        console.error('[API] Error in /api/v1/notify:', error);
+        return new Response(JSON.stringify({ error: error.message }), {
+          status: 500,
+          headers: { 'Content-Type': 'application/json' }
+        });
+      }
+    }
+
     // API: Update moderation status (for external services)
     // Auth: Bearer token or Cloudflare Access JWT
     if (url.pathname === '/api/v1/moderate' && request.method === 'POST') {
