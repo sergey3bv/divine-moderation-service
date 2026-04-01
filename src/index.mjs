@@ -26,6 +26,8 @@ import { getKVThresholds, setKVThresholds, DEFAULT_THRESHOLDS } from './moderati
 import { isValidSha256, isValidLookupIdentifier, isValidPubkey, parseMaybeJson, getEventTagValue, parseImetaParams, extractShaFromUrl, extractMediaShaFromEvent } from './validation.mjs';
 import { parseVttText } from './moderation/text-classifier.mjs';
 import { notifyAtprotoLabeler } from './atproto/label-webhook.mjs';
+import { buildDownstreamPublishContext } from './moderation/downstream-publishing.mjs';
+import { runClassicVineRollback } from './moderation/classic-vine-rollback.mjs';
 /**
  * NIP-32 label mapping for content categories
  * Maps internal category names to NIP-32/NIP-56 compatible labels
@@ -1531,7 +1533,6 @@ export default {
       // Notify reporters who filed reports on this content (non-blocking)
       const { notifyReporters } = await import('./nostr/dm-sender.mjs');
       notifyReporters(sha256, action, env, '[ADMIN]');
-
       // Notify ATProto labeler of manual override
       notifyAtprotoLabeler({ sha256, action, scores: updated.scores || {}, reviewed_by: 'admin' }, env).catch(err => {
         console.error('[ADMIN] ATProto labeler notification failed:', err.message);
@@ -2593,6 +2594,22 @@ async function runMigration() {
         return new Response(JSON.stringify({ error: 'No realness verification found' }), { status: 404, headers: { 'Content-Type': 'application/json' } });
       }
       return new Response(JSON.stringify(result), { headers: { 'Content-Type': 'application/json' } });
+    }
+
+    if (url.pathname === '/admin/api/classic-vines/rollback' && request.method === 'POST') {
+      const authError = await requireAuth(request, env);
+      if (authError) return authError;
+
+      try {
+        const body = await request.json();
+        const result = await runClassicVineRollback(body, env, {
+          notifyBlossom: (sha256, action) => notifyBlossom(sha256, action, env)
+        });
+        return jsonResponse(200, result);
+      } catch (error) {
+        console.error('[CLASSIC-VINES] Rollback error:', error);
+        return jsonResponse(error.status || 500, { error: error.message });
+      }
     }
 
     // API: Submit a user report for a piece of content (NIP-56)
@@ -3706,29 +3723,21 @@ async function runMigration() {
  */
 async function handleModerationResult(result, env) {
   const { sha256, action, scores, reason, flaggedFrames, severity, cdnUrl, uploadedBy } = result;
+  const downstreamContext = buildDownstreamPublishContext(result);
 
   console.log(`[MODERATION] handleModerationResult called for ${sha256} with action ${action}`);
 
   // Publish Nostr notifications for flagged content
-  if (action !== 'SAFE') {
+  if (downstreamContext.publishReport) {
     try {
-      const reportData = {
-        type: action.toLowerCase().replace('_', '-'),
-        sha256,
-        cdnUrl,
-        category: result.category,
-        scores,
-        reason,
-        severity,
-        frames: flaggedFrames
-      };
+      const reportData = downstreamContext.reportData;
       await publishToFaro(reportData, env);
-      console.log(`[MODERATION] ${sha256} - Nostr ${action} event published to Faro`);
+      console.log(`[MODERATION] ${sha256} - Nostr ${reportData.type} event published to Faro`);
 
       // Also publish to content relay so it can stop serving flagged events
       try {
         await publishToContentRelay(reportData, env);
-        console.log(`[MODERATION] ${sha256} - Nostr ${action} event published to content relay`);
+        console.log(`[MODERATION] ${sha256} - Nostr ${reportData.type} event published to content relay`);
       } catch (relayError) {
         console.error(`[MODERATION] ${sha256} - Content relay publish failed:`, relayError);
       }
@@ -3775,7 +3784,7 @@ async function handleModerationResult(result, env) {
   // Write normalized moderation labels to ClickHouse
   try {
     const { writeModerationLabels } = await import('./moderation/label-writer.mjs');
-    await writeModerationLabels(sha256, result, env, {
+    await writeModerationLabels(sha256, downstreamContext.labelResult, env, {
       sourceId: result.provider || 'divine-hive',
       sourceOwner: 'divine',
       sourceType: 'machine-labeler',
@@ -3786,7 +3795,7 @@ async function handleModerationResult(result, env) {
   }
 
   // Notify ATProto labeler service (fire-and-forget)
-  notifyAtprotoLabeler({ sha256, action, scores, reviewed_by: result.reviewed_by }, env).catch(err => {
+  notifyAtprotoLabeler({ ...downstreamContext.labelResult, sha256, action, reviewed_by: result.reviewed_by }, env).catch(err => {
     console.error('[MODERATION] ATProto labeler notification failed:', err.message);
   });
 
