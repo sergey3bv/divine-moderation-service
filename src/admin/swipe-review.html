@@ -29,10 +29,14 @@
       padding: 15px 20px;
       background: #1a1a1a;
       border-bottom: 1px solid #333;
+      flex-shrink: 0;
+    }
+
+    .header-top {
       display: flex;
       justify-content: space-between;
       align-items: center;
-      flex-shrink: 0;
+      margin-bottom: 10px;
     }
 
     .header h1 {
@@ -40,9 +44,16 @@
       color: #fff;
     }
 
-    .header-actions {
+    .header-nav {
       display: flex;
       gap: 10px;
+    }
+
+    .header-filters {
+      display: flex;
+      gap: 10px;
+      flex-wrap: wrap;
+      justify-content: flex-end;
     }
 
     .btn {
@@ -349,6 +360,15 @@
       background: #14532d;
     }
 
+    .action-btn.skip {
+      background: #374151;
+      color: #d1d5db;
+    }
+
+    .action-btn.skip:hover {
+      background: #4b5563;
+    }
+
     .keyboard-hints {
       margin-top: 15px;
       padding: 12px;
@@ -401,6 +421,57 @@
       background: #2d1b4e;
       border-color: #7c3aed;
       color: #c4b5fd;
+    }
+
+    .transcript-panel {
+      margin-bottom: 12px;
+      padding: 10px 12px;
+      background: #111;
+      border: 1px solid #2a2a2a;
+      border-radius: 6px;
+    }
+
+    .transcript-panel-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 8px;
+      margin-bottom: 8px;
+    }
+
+    .transcript-panel-title {
+      font-size: 12px;
+      font-weight: 600;
+      color: #f4f4f5;
+      text-transform: uppercase;
+      letter-spacing: 0.02em;
+    }
+
+    .transcript-panel-link {
+      font-size: 11px;
+      color: #93c5fd;
+      text-decoration: none;
+    }
+
+    .transcript-panel-link:hover {
+      text-decoration: underline;
+    }
+
+    .transcript-panel-text {
+      margin: 0;
+      max-height: 160px;
+      overflow-y: auto;
+      white-space: pre-wrap;
+      font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+      font-size: 12px;
+      line-height: 1.55;
+      color: #d4d4d8;
+    }
+
+    .transcript-panel-empty {
+      font-size: 12px;
+      color: #71717a;
+      line-height: 1.5;
     }
 
     .keyboard-hints kbd {
@@ -512,10 +583,32 @@
 </head>
 <body>
   <div class="header">
-    <h1>Quick Review</h1>
-    <div class="header-actions">
-      <button class="btn" onclick="window.location.href='/admin/dashboard'">Dashboard</button>
-      <button class="btn" onclick="logout()">Logout</button>
+    <div class="header-top">
+      <div>
+        <h1 style="margin-bottom: 2px;">Quick Review</h1>
+        <div style="font-size: 12px; color: #888;">Showing AI-flagged items awaiting review</div>
+      </div>
+      <div class="header-nav">
+        <button class="btn" onclick="window.location.href='/admin/dashboard'">Dashboard</button>
+        <button class="btn" onclick="logout()">Logout</button>
+      </div>
+    </div>
+    <div class="header-filters">
+      <select id="queue-order" class="btn" onchange="applyQueueOrder()" style="appearance: auto;">
+        <option value="newest">Load: Newest first</option>
+        <option value="oldest">Load: Oldest first</option>
+      </select>
+      <select id="sort-order" class="btn" onchange="applySortOrder()" style="appearance: auto;">
+        <option value="high">Sort: Highest score</option>
+        <option value="low">Sort: Lowest score</option>
+      </select>
+      <select id="since-filter" class="btn" onchange="applySinceFilter()" style="appearance: auto;">
+        <option value="2025-12-01">Since Dec 2025</option>
+        <option value="2026-01-01">Since Jan 2026</option>
+        <option value="2026-02-01">Since Feb 2026</option>
+        <option value="2026-03-01">Since Mar 2026</option>
+        <option value="">All time</option>
+      </select>
     </div>
   </div>
 
@@ -541,9 +634,13 @@
 
   <script>
     let reviewQueue = [];
+    let loadedFlaggedVideos = [];
+    let loadedUntriagedVideos = [];
     let currentIndex = 0;
     let reviewedCount = 0;
+    const reviewedSha256s = new Set();
     let currentToast = null;
+    const transcriptCache = new Map();
 
     // Touch/mouse state
     let isDragging = false;
@@ -553,11 +650,27 @@
     let currentY = 0;
     let swipeDirection = null; // 'horizontal' or 'vertical'
 
+    function applySinceFilter() {
+      // Reset queue and reload with new filter
+      reviewQueue = [];
+      currentIndex = 0;
+      reviewedCount = 0;
+      document.getElementById('review-container').style.display = 'none';
+      document.getElementById('empty').style.display = 'none';
+      document.getElementById('progress').style.display = 'none';
+      document.getElementById('loading').style.display = 'block';
+      loadReviewQueue();
+    }
+
     async function loadReviewQueue() {
       try {
         // Load AI flagged videos FIRST (priority), then untriaged
+        const sinceValue = document.getElementById('since-filter').value;
+        const sinceParam = sinceValue ? `&since=${sinceValue}` : '';
+        const queueOrder = document.getElementById('queue-order').value;
+        const sortParam = queueOrder === 'oldest' ? '&sort=oldest' : '';
         const [flaggedResponse, untriagedResponse] = await Promise.all([
-          fetch('/admin/api/videos?action=FLAGGED&limit=100'),
+          fetch('/admin/api/videos?action=FLAGGED&limit=100' + sinceParam + sortParam),
           fetch('/admin/api/untriaged?limit=50')
         ]);
 
@@ -569,21 +682,18 @@
         const flaggedData = await flaggedResponse.json();
         const untriagedData = await untriagedResponse.json();
 
-        // AI flagged videos - sorted by highest score first
-        const flaggedVideos = (flaggedData.videos || [])
-          .sort((a, b) => getMaxScore(b.scores) - getMaxScore(a.scores));
-
-        const untriagedVideos = (untriagedData.videos || []).map(v => ({
+        loadedFlaggedVideos = flaggedData.videos || [];
+        loadedUntriagedVideos = (untriagedData.videos || []).map(v => ({
           ...v,
           isUntriaged: true,
           action: 'UNTRIAGED',
           scores: {}
         }));
 
-        // AI FLAGGED FIRST (they need attention!), then untriaged
-        reviewQueue = [...flaggedVideos, ...untriagedVideos];
+        // Sort flagged videos by selected order, then append untriaged
+        reviewQueue = [...sortFlaggedVideos(loadedFlaggedVideos), ...loadedUntriagedVideos];
 
-        console.log('[QuickReview] Loaded:', flaggedVideos.length, 'AI flagged,', untriagedVideos.length, 'untriaged');
+        console.log('[QuickReview] Loaded:', loadedFlaggedVideos.length, 'AI flagged,', loadedUntriagedVideos.length, 'untriaged');
 
         document.getElementById('loading').style.display = 'none';
 
@@ -592,6 +702,14 @@
         } else {
           document.getElementById('review-container').style.display = 'flex';
           document.getElementById('progress').style.display = 'block';
+
+          // Jump to specific video if ?sha256= is in URL
+          const targetSha = new URLSearchParams(window.location.search).get('sha256');
+          if (targetSha) {
+            const idx = reviewQueue.findIndex(v => v.sha256 === targetSha);
+            if (idx >= 0) currentIndex = idx;
+          }
+
           showCurrentVideo();
         }
 
@@ -612,6 +730,33 @@
       return Math.max(...Object.values(scores).filter(v => typeof v === 'number'));
     }
 
+    function sortFlaggedVideos(videos) {
+      const order = document.getElementById('sort-order').value;
+      const sorted = [...videos];
+      if (order === 'high') {
+        sorted.sort((a, b) => getMaxScore(b.scores) - getMaxScore(a.scores));
+      } else if (order === 'low') {
+        sorted.sort((a, b) => getMaxScore(a.scores) - getMaxScore(b.scores));
+      }
+      return sorted;
+    }
+
+    function applyQueueOrder() {
+      // Re-fetch: different queue orders pull different items from the backend
+      applySinceFilter();
+    }
+
+    function applySortOrder() {
+      // Re-sort the already-loaded batch client-side, filtering out already-reviewed items
+      if (loadedFlaggedVideos.length === 0) return;
+      const remainingFlagged = loadedFlaggedVideos.filter(v => !reviewedSha256s.has(v.sha256));
+      const remainingUntriaged = loadedUntriagedVideos.filter(v => !reviewedSha256s.has(v.sha256));
+      reviewQueue = [...sortFlaggedVideos(remainingFlagged), ...remainingUntriaged];
+      currentIndex = 0;
+      showCurrentVideo();
+      updateProgress();
+    }
+
     function showCurrentVideo() {
       if (currentIndex >= reviewQueue.length) {
         // Finished all reviews
@@ -624,6 +769,12 @@
       const video = reviewQueue[currentIndex];
       const container = document.getElementById('review-container');
 
+      // Update URL with current video's sha256 for permalinking
+      const url = new URL(window.location);
+      url.searchParams.set('sha256', video.sha256);
+      history.replaceState(null, '', url);
+
+      // NOTE: createVideoCard returns sanitized HTML (all user content goes through escapeHtml)
       container.innerHTML = createVideoCard(video);
       updateProgress();
 
@@ -657,6 +808,19 @@
             }
           }
         });
+      }
+
+      if (video.transcriptData !== null && !video.transcriptData) {
+        fetchTranscriptData(video.sha256).then(transcriptData => {
+          video.transcriptData = transcriptData;
+          if (currentIndex < reviewQueue.length && reviewQueue[currentIndex].sha256 === video.sha256) {
+            renderTranscriptIntoCard(card, transcriptData);
+          }
+        }).catch(() => {
+          video.transcriptData = { sha256: video.sha256, found: false };
+        });
+      } else if (video.transcriptData) {
+        renderTranscriptIntoCard(card, video.transcriptData);
       }
 
       // Async-load nostr context if not already present (for flagged videos from DB)
@@ -697,6 +861,14 @@
         });
       }
 
+      if (next.transcriptData !== null && !next.transcriptData) {
+        fetchTranscriptData(next.sha256).then(transcriptData => {
+          next.transcriptData = transcriptData;
+        }).catch(() => {
+          next.transcriptData = { sha256: next.sha256, found: false };
+        });
+      }
+
       // Preload nostr context
       if (!next.nostrContext && !next._nostrContextFetched) {
         next._nostrContextFetched = true;
@@ -711,9 +883,7 @@
 
       // Preload video element
       if (!next._preloadedVideo) {
-        const videoUrl = next.isUntriaged
-          ? (next.cdnUrl || 'https://media.divine.video/' + next.sha256 + '.mp4')
-          : '/admin/video/' + next.sha256 + '.mp4';
+        const videoUrl = '/admin/video/' + next.sha256 + '.mp4';
         const vid = document.createElement('video');
         vid.preload = 'auto';
         vid.src = videoUrl;
@@ -745,7 +915,12 @@
       const truncatedPubkey = pubkey ? (pubkey.length > 20 ? pubkey.substring(0, 16) + '...' : pubkey) : null;
       const timestamp = video.moderated_at || video.receivedAt || null;
       const timeAgo = timestamp ? formatTimeAgo(timestamp) : null;
-      const divineUrl = video.eventId ? `https://divine.video/video/${video.eventId}` : null;
+      const divineVideoUrl = video.eventId
+        ? `https://divine.video/video/${video.eventId}`
+        : `https://divine.video/video/${video.sha256}`;
+      const divineProfileUrl = pubkey ? `https://divine.video/profile/${pubkey}` : null;
+      const divineLinkLabel = video.eventId ? 'View on Divine' : pubkey ? 'View on Divine (may not be published)' : 'Not published to relay';
+      const hasDivineLink = video.eventId || pubkey;
 
       if (!authorName && !pubkey && !timestamp) return '';
 
@@ -753,11 +928,13 @@
         <div class="event-meta">
           <div class="event-meta-avatar">${authorName ? authorName.charAt(0).toUpperCase() : '?'}</div>
           <div class="event-meta-details">
-            ${authorName ? `<div class="event-meta-author">${escapeHtml(authorName)}</div>` : ''}
-            ${truncatedPubkey ? `<div class="event-meta-pubkey">${escapeHtml(truncatedPubkey)}</div>` : ''}
+            ${authorName ? `<div class="event-meta-author">${divineProfileUrl ? `<a href="${escapeHtml(divineProfileUrl)}" target="_blank" style="color: inherit; text-decoration: none;">${escapeHtml(authorName)}</a>` : escapeHtml(authorName)}</div>` : ''}
+            ${truncatedPubkey ? `<div class="event-meta-pubkey">${divineProfileUrl ? `<a href="${escapeHtml(divineProfileUrl)}" target="_blank" style="color: inherit; text-decoration: underline dotted;">${escapeHtml(truncatedPubkey)}</a>` : escapeHtml(truncatedPubkey)}</div>` : ''}
             ${timeAgo ? `<div class="event-meta-time">${escapeHtml(timeAgo)}</div>` : ''}
             <div class="event-meta-links">
-              ${divineUrl ? `<a href="${escapeHtml(divineUrl)}" target="_blank">View on Divine</a>` : ''}
+              ${hasDivineLink
+                ? `<a href="${escapeHtml(divineVideoUrl)}" target="_blank">${divineLinkLabel}</a>`
+                : `<span style="color: #666; font-style: italic;">${divineLinkLabel}</span>`}
               ${nostrContext?.url ? `<a href="${escapeHtml(nostrContext.url)}" target="_blank">CDN</a>` : ''}
             </div>
           </div>
@@ -780,6 +957,89 @@
       } catch {
         return null;
       }
+    }
+
+    async function fetchTranscriptData(sha256) {
+      if (transcriptCache.has(sha256)) {
+        return transcriptCache.get(sha256);
+      }
+
+      const promise = (async () => {
+        const resp = await fetch(`/admin/api/transcript/${sha256}`);
+        if (resp.status === 404) {
+          return { sha256, found: false };
+        }
+        if (!resp.ok) {
+          throw new Error(`HTTP ${resp.status}`);
+        }
+        return resp.json();
+      })();
+
+      transcriptCache.set(sha256, promise);
+      return promise;
+    }
+
+    function createTranscriptHTML(transcriptData) {
+      if (!transcriptData?.found) {
+        return '<div class="transcript-panel-empty">No transcript available for this video.</div>';
+      }
+
+      const transcriptText = transcriptData.transcriptText?.trim();
+      const body = transcriptText
+        ? `<pre class="transcript-panel-text">${escapeHtml(transcriptText)}</pre>`
+        : '<div class="transcript-panel-empty">Transcript file exists but contains no extractable text.</div>';
+
+      return `
+        <div class="transcript-panel-header">
+          <span class="transcript-panel-title">Transcript</span>
+          ${transcriptText ? `<button data-sha256="${escapeHtml(transcriptData.sha256)}" onclick="copyTranscript(this)" style="background: none; border: 1px solid #555; color: #aaa; padding: 2px 8px; border-radius: 4px; cursor: pointer; font-size: 11px;">📋 Copy</button>` : ''}
+          <a class="transcript-panel-link" href="${escapeHtml(transcriptData.subtitleUrl)}" target="_blank" rel="noopener noreferrer">Open VTT</a>
+        </div>
+        ${body}
+      `;
+    }
+
+    function attachTranscriptTrack(card, transcriptData) {
+      if (!card || !transcriptData?.found) {
+        return;
+      }
+
+      const video = card.querySelector('video');
+      if (!video || video.querySelector('track[data-transcript-track="true"]')) {
+        return;
+      }
+
+      const track = document.createElement('track');
+      track.kind = 'subtitles';
+      track.label = 'Transcript';
+      track.srclang = 'en';
+      track.src = transcriptData.subtitleUrl;
+      track.default = true;
+      track.dataset.transcriptTrack = 'true';
+      track.addEventListener('load', () => {
+        try {
+          track.track.mode = 'showing';
+        } catch (error) {
+          console.warn('Unable to enable transcript track:', error);
+        }
+      });
+      video.appendChild(track);
+
+      if (track.track) {
+        try {
+          track.track.mode = 'showing';
+        } catch (error) {
+          console.warn('Unable to show transcript track:', error);
+        }
+      }
+    }
+
+    function renderTranscriptIntoCard(card, transcriptData) {
+      const container = card?.querySelector('.transcript-panel');
+      if (!container) return;
+
+      container.innerHTML = createTranscriptHTML(transcriptData);
+      attachTranscriptTrack(card, transcriptData);
     }
 
     function createClassifierHTML(classifierSummary) {
@@ -812,11 +1072,8 @@
     }
 
     function createVideoCard(video) {
-      const { sha256, scores, nostrContext, provider, detailedCategories, isUntriaged, cdnUrl, classifierSummary, uploaded_by, moderated_at, receivedAt, eventId } = video;
-      // For untriaged videos, use CDN URL; for moderated, use admin endpoint
-      const videoUrl = isUntriaged
-        ? (cdnUrl || 'https://media.divine.video/' + sha256 + '.mp4')
-        : '/admin/video/' + sha256 + '.mp4';
+      const { sha256, scores, nostrContext, provider, detailedCategories, isUntriaged, classifierSummary, uploaded_by, moderated_at, receivedAt, eventId } = video;
+      const videoUrl = '/admin/video/' + sha256 + '.mp4';
 
       // Get top scores (empty for untriaged)
       const scoreEntries = Object.entries(scores || {})
@@ -839,6 +1096,9 @@
 
       // Classifier summary (VLM description + topics)
       const classifierHTML = createClassifierHTML(classifierSummary);
+      const transcriptHTML = video.transcriptData
+        ? createTranscriptHTML(video.transcriptData)
+        : '<div class="transcript-panel-empty">Loading transcript…</div>';
 
       // Provider info with AI source detection
       let providerHTML = '';
@@ -871,17 +1131,24 @@
       const timestamp = moderated_at || receivedAt || null;
       const timeAgo = timestamp ? formatTimeAgo(timestamp) : null;
       const title = nostrContext?.title || null;
-      const divineUrl = eventId ? `https://divine.video/video/${eventId}` : null;
+      const divineVideoUrl = eventId
+        ? `https://divine.video/video/${eventId}`
+        : `https://divine.video/video/${sha256}`;
+      const divineProfileUrl = pubkey ? `https://divine.video/profile/${pubkey}` : null;
+      const divineLinkLabel = eventId ? 'View on Divine' : pubkey ? 'View on Divine (may not be published)' : 'Not published to relay';
+      const hasDivineLink = eventId || pubkey;
 
       const eventMetaHTML = (authorName || pubkey || timestamp) ? `
         <div class="event-meta">
           <div class="event-meta-avatar">${authorName ? authorName.charAt(0).toUpperCase() : '?'}</div>
           <div class="event-meta-details">
-            ${authorName ? `<div class="event-meta-author">${escapeHtml(authorName)}</div>` : ''}
-            ${truncatedPubkey ? `<div class="event-meta-pubkey">${escapeHtml(truncatedPubkey)}</div>` : ''}
+            ${authorName ? `<div class="event-meta-author">${divineProfileUrl ? `<a href="${escapeHtml(divineProfileUrl)}" target="_blank" style="color: inherit; text-decoration: none;">${escapeHtml(authorName)}</a>` : escapeHtml(authorName)}</div>` : ''}
+            ${truncatedPubkey ? `<div class="event-meta-pubkey">${divineProfileUrl ? `<a href="${escapeHtml(divineProfileUrl)}" target="_blank" style="color: inherit; text-decoration: underline dotted;">${escapeHtml(truncatedPubkey)}</a>` : escapeHtml(truncatedPubkey)}</div>` : ''}
             ${timeAgo ? `<div class="event-meta-time">${escapeHtml(timeAgo)}</div>` : ''}
             <div class="event-meta-links">
-              ${divineUrl ? `<a href="${escapeHtml(divineUrl)}" target="_blank">View on Divine</a>` : ''}
+              ${hasDivineLink
+                ? `<a href="${escapeHtml(divineVideoUrl)}" target="_blank">${divineLinkLabel}</a>`
+                : `<span style="color: #666; font-style: italic;">${divineLinkLabel}</span>`}
               ${nostrContext?.url ? `<a href="${escapeHtml(nostrContext.url)}" target="_blank">CDN</a>` : ''}
             </div>
           </div>
@@ -922,9 +1189,14 @@
 
             ${title ? `<div class="nostr-title" style="margin-bottom: 10px;">${escapeHtml(title)}</div>` : ''}
 
-            <div class="video-hash">${sha256}</div>
+            <div class="video-hash" style="display: flex; align-items: center; gap: 8px;">
+              ${sha256}
+              <button onclick="copyPermalink('${sha256}', this)" style="background: none; border: 1px solid #555; color: #aaa; padding: 2px 8px; border-radius: 4px; cursor: pointer; font-size: 11px;">📋 Link</button>
+            </div>
 
             ${classifierHTML}
+
+            <div class="transcript-panel">${transcriptHTML}</div>
 
             ${scoreEntries.length > 0 ? `
               <div class="scores-grid">
@@ -945,6 +1217,9 @@
               </button>
               <button class="action-btn approve" onclick="handleAction('${sha256}', 'SAFE')">
                 Approve
+              </button>
+              <button class="action-btn skip" onclick="skipVideo()">
+                Skip
               </button>
             </div>
 
@@ -1060,7 +1335,8 @@
           const response = await fetch('/admin/api/queue-moderation', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ sha256 })
+            body: JSON.stringify({ sha256 }),
+            keepalive: true
           });
 
           if (!response.ok) {
@@ -1068,6 +1344,7 @@
           }
 
           reviewedCount++;
+          reviewedSha256s.add(sha256);
           showToast('Queued for AI moderation', null, 2000);
 
           // Move to next video
@@ -1080,7 +1357,8 @@
         const response = await fetch('/admin/api/moderate/' + sha256, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ action, reason: 'Quick review: ' + action })
+          body: JSON.stringify({ action, reason: 'Quick review: ' + action }),
+          keepalive: true
         });
 
         if (!response.ok) {
@@ -1088,6 +1366,7 @@
         }
 
         reviewedCount++;
+        reviewedSha256s.add(sha256);
 
         const actionName = action === 'SAFE' ? 'approved' :
                           action === 'AGE_RESTRICTED' ? 'age-restricted' :
@@ -1108,6 +1387,7 @@
             if (undoResponse.ok) {
               currentIndex--;
               reviewedCount--;
+              reviewedSha256s.delete(sha256);
               showCurrentVideo();
               showToast('Action undone', null, 2000);
             }
@@ -1256,6 +1536,33 @@
       const div = document.createElement('div');
       div.textContent = text;
       return div.innerHTML;
+    }
+
+    function copyPermalink(sha256, btn) {
+      const url = new URL(window.location);
+      url.searchParams.set('sha256', sha256);
+      navigator.clipboard.writeText(url.toString()).then(() => {
+        btn.textContent = '✓ Copied';
+        setTimeout(() => { btn.textContent = '📋 Link'; }, 1500);
+      }).catch(() => { /* clipboard not available */ });
+    }
+
+    async function copyTranscript(btn) {
+      const sha256 = btn.dataset.sha256;
+      try {
+        const data = await (transcriptCache.get(sha256) || fetchTranscriptData(sha256));
+        if (!data?.transcriptText) {
+          btn.textContent = '✗ None';
+          setTimeout(() => { btn.textContent = '📋 Copy'; }, 1500);
+          return;
+        }
+        await navigator.clipboard.writeText(data.transcriptText);
+        btn.textContent = '✓ Copied';
+        setTimeout(() => { btn.textContent = '📋 Copy'; }, 1500);
+      } catch {
+        btn.textContent = '✗ Error';
+        setTimeout(() => { btn.textContent = '📋 Copy'; }, 1500);
+      }
     }
 
     function logout() {

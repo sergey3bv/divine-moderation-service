@@ -27,46 +27,81 @@ const RELAY_TIMEOUT_MS = 5000;
 
 // --- Message Templates ---
 
+const FOOTER = 'Learn more about our content policies: divine.video/terms | about.divine.video/faqs/ | divine.video/support';
+
+// Format helpers for optional metadata
+const contentSubject = (title, fallback = 'Your content') =>
+  title ? `Your video "${title}"` : fallback;
+const postedDate = (publishedAt) =>
+  publishedAt ? ` (posted ${formatDate(publishedAt)})` : '';
+const contentLink = (sha256) =>
+  sha256 ? `\ndivine.video/video/${sha256}\n` : '\n';
+
+function formatDate(dateStr) {
+  try {
+    const d = new Date(dateStr);
+    return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric', timeZone: 'UTC' });
+  } catch { return dateStr; }
+}
+
 const TEMPLATES = {
-  PERMANENT_BAN: (reason) =>
-    `Your video has been removed for violating Divine's content policies. Reason: ${reason}. If you believe this is an error, you can reply to this message to appeal.`,
+  PERMANENT_BAN: (reason, sha256, title, publishedAt) =>
+    `${contentSubject(title)}${postedDate(publishedAt)} was removed because it was found to ${reason}.\n\nIf you believe this was a mistake, you can reply to this message to appeal.\n${contentLink(sha256)}\n${FOOTER}`,
 
-  AGE_RESTRICTED: (reason) =>
-    `Your video has been age-restricted: ${reason}. It remains available but will only be shown to users who have confirmed their age.`,
+  AGE_RESTRICTED: (reason, sha256, title, publishedAt) =>
+    `${contentSubject(title)}${postedDate(publishedAt)} has been age-restricted because it was found to ${reason}. It's still available, but only visible to viewers who have confirmed their age.\n${contentLink(sha256)}\n${FOOTER}`,
 
-  QUARANTINE: (reason) =>
-    `Your video has been temporarily hidden pending manual review. Reason: ${reason}. A moderator will review it shortly. You can reply to this message with any context.`,
+  // QUARANTINE intentionally ignores reason — the message is generic per spec
+  QUARANTINE: (_reason, sha256, title, publishedAt) =>
+    `${contentSubject(title)}${postedDate(publishedAt)} has been temporarily hidden while we review it. A moderator will take a look shortly. If you'd like to provide context, you can reply to this message.\n${contentLink(sha256)}\n${FOOTER}`,
 
-  REPORT_OUTCOME: (action) =>
-    `Thank you for your report. After review, the reported content has been ${action}. We appreciate your help keeping the community safe.`,
+  // Account-level suspension — no content link, not content-specific.
+  // Used by relay-manager when banning a user's pubkey.
+  ACCOUNT_SUSPENDED: () =>
+    `Your account has been suspended for violating Divine's content policies.\n\nIf you believe this was a mistake, you can reply to this message to appeal.\n\n${FOOTER}`,
+
+  REPORT_OUTCOME_ACTION: (outcome, sha256, title, publishedAt, reportedAt) =>
+    `Thanks for your report. We've reviewed ${contentSubject(title, 'the reported content')}${postedDate(publishedAt)} and it has been ${outcome}.${reportedAt ? ` You reported this content on ${formatDate(reportedAt)}.` : ''}\n${contentLink(sha256)}\nIf you have questions, you can reply to this message.\n\n${FOOTER}`,
+
+  REPORT_OUTCOME_NO_ACTION: (sha256, title, publishedAt, reportedAt) =>
+    `Thanks for your report. We've reviewed ${contentSubject(title, 'the reported content')}${postedDate(publishedAt)} and no action was taken at this time.${reportedAt ? ` You reported this content on ${formatDate(reportedAt)}.` : ''}\n${contentLink(sha256)}\nIf you disagree with this outcome, you can reply to this message.\n\n${FOOTER}`,
+};
+
+// Per-action default reasons so AGE_RESTRICTED gets its own fallback text
+const DEFAULT_REASONS = {
+  PERMANENT_BAN: 'violate Divine\'s content policies',
+  AGE_RESTRICTED: 'contain material that may not be suitable for all audiences',
+  QUARANTINE: '', // QUARANTINE template ignores reason
 };
 
 // --- Category-Specific Templates ---
+// NOTE: `policy` URLs are retained for future use but intentionally not included
+// in DM text until those pages exist. See 2026-03-19-dm-alignment-design.md.
 
 const CATEGORY_TEMPLATES = {
   nudity: {
-    reason: 'sexual or nude content',
+    reason: 'contain sexual or nude content',
     policy: 'https://divine.video/policies#sexual-content',
   },
   ai_generated: {
-    reason: 'AI-generated content without disclosure',
+    reason: 'contain AI-generated content without disclosure',
     policy: 'https://divine.video/policies#ai-content',
   },
   deepfake: {
-    reason: 'deepfake or manipulated media',
+    reason: 'contain deepfake or manipulated media',
     policy: 'https://divine.video/policies#manipulated-media',
   },
   offensive: {
-    reason: 'offensive or hateful content',
+    reason: 'contain offensive or hateful content',
     policy: 'https://divine.video/policies#hate-speech',
   },
   self_harm: {
-    reason: 'content depicting self-harm',
+    reason: 'depict self-harm',
     policy: 'https://divine.video/policies#self-harm',
-    extra: '\n\nIf you or someone you know is struggling, please reach out: 988 Suicide & Crisis Lifeline (call or text 988).',
+    extra: '\n\nIf you or someone you know is struggling, please reach out. International crisis lines: helpguide.org/find-help | suicide.org/international-suicide-hotlines.html — In the US/Canada, call or text 988.',
   },
   scam: {
-    reason: 'fraudulent or scam content',
+    reason: 'contain fraudulent or scam content',
     policy: 'https://divine.video/policies#fraud',
   },
 };
@@ -75,11 +110,16 @@ const CATEGORY_TEMPLATES = {
  * Select a category-specific template for a moderation action.
  * Falls back to generic reason if no category match.
  * @param {string} action - PERMANENT_BAN, AGE_RESTRICTED, or QUARANTINE
- * @param {string|null} reason - Human-readable reason
+ * @param {string|null} reason - Ignored when category matches. When used as fallback,
+ *   must be a sentence completion after "was found to" (e.g., "violate content policies").
+ *   Caller-provided freeform reasons are overridden by per-action defaults when no category matches.
  * @param {string|null} categories - JSON string of categories or plain category string
+ * @param {string|null} sha256 - Content hash for divine.video link
+ * @param {string|null} title - Content title for identification (e.g., "My cool video")
+ * @param {string|null} publishedAt - ISO date when content was published
  * @returns {string|null} Message text or null if action has no template
  */
-export function selectTemplate(action, reason, categories) {
+export function selectTemplate(action, reason, categories, sha256, title = null, publishedAt = null) {
   let categoryInfo = null;
   if (categories && typeof categories === 'string') {
     try {
@@ -96,17 +136,18 @@ export function selectTemplate(action, reason, categories) {
     }
   }
 
-  const specificReason = categoryInfo?.reason || reason || 'content policy violation';
-  const policyLink = categoryInfo?.policy || 'https://divine.video/policies';
+  // Category reason takes priority. Caller-provided reason is ignored because it may not
+  // fit the "was found to {reason}" grammar (e.g., "Manual moderator action").
+  // Per-action defaults provide grammatically correct fallbacks.
+  const specificReason = categoryInfo?.reason || DEFAULT_REASONS[action] || 'violate Divine\'s content policies';
   const extra = categoryInfo?.extra || '';
 
-  const templates = {
-    PERMANENT_BAN: `Your video has been removed for: ${specificReason}.\n\nPolicy: ${policyLink}\n\nIf you believe this is an error, reply to this message to appeal.${extra}`,
-    AGE_RESTRICTED: `Your video has been age-restricted: ${specificReason}. It remains available but will only be shown to users who have confirmed their age.\n\nPolicy: ${policyLink}`,
-    QUARANTINE: `Your video has been temporarily hidden pending review: ${specificReason}. A moderator will review it shortly — you can reply with context.\n\nPolicy: ${policyLink}`,
-  };
+  const template = TEMPLATES[action];
+  if (!template) return null;
 
-  return templates[action] || null;
+  const body = template(specificReason, sha256, title, publishedAt);
+
+  return extra ? body.replace(`\n${FOOTER}`, `${extra}\n\n${FOOTER}`) : body;
 }
 
 /**
@@ -115,18 +156,32 @@ export function selectTemplate(action, reason, categories) {
  * @param {string} reason
  * @returns {string|null} Message text or null if action has no template
  */
-export function getMessageForAction(action, reason = 'content policy violation') {
+export function getMessageForAction(action, reason = 'violate Divine\'s content policies', sha256 = null, title = null, publishedAt = null) {
   const template = TEMPLATES[action];
-  return template ? template(reason) : null;
+  return template ? template(reason, sha256, title, publishedAt) : null;
 }
 
 /**
  * Get report outcome message text.
- * @param {string} action - The action taken
+ * @param {string} action - The moderation action (PERMANENT_BAN, AGE_RESTRICTED, SAFE, DISMISS, etc.)
+ * @param {string} sha256 - Content hash for divine.video link
+ * @param {string|null} title - Content title
+ * @param {string|null} publishedAt - ISO date when content was published
+ * @param {string|null} reportedAt - ISO date when the report was filed
  * @returns {string}
  */
-export function getReportOutcomeMessage(action) {
-  return TEMPLATES.REPORT_OUTCOME(action);
+export function getReportOutcomeMessage(action, sha256 = null, title = null, publishedAt = null, reportedAt = null) {
+  const ACTION_OUTCOMES = {
+    PERMANENT_BAN: 'removed',
+    AGE_RESTRICTED: 'age-restricted. It\'s now only visible to viewers who have confirmed their age',
+  };
+
+  const outcome = ACTION_OUTCOMES[action];
+
+  if (outcome) {
+    return TEMPLATES.REPORT_OUTCOME_ACTION(outcome, sha256, title, publishedAt, reportedAt);
+  }
+  return TEMPLATES.REPORT_OUTCOME_NO_ACTION(sha256, title, publishedAt, reportedAt);
 }
 
 // --- Key Management ---
@@ -474,16 +529,22 @@ function publishToSingleRelay(event, relayUrl, env) {
  * @param {string} reason - Human-readable reason
  * @param {Object} env - Cloudflare Workers env
  * @param {Object} ctx - Execution context (for waitUntil)
- * @param {string} [categories] - JSON string of categories from moderation result
+ * @param {Object} [options] - Optional parameters
+ * @param {string} [options.categories] - JSON string of categories from moderation result
+ * @param {string} [options.title] - Content title
+ * @param {string} [options.publishedAt] - ISO date when content was published
  * @returns {Promise<{ sent: boolean, reason?: string }>}
  */
-export async function sendModerationDM(recipientPubkey, sha256, action, reason, env, ctx, categories) {
+export async function sendModerationDM(recipientPubkey, sha256, action, reason, env, ctx, options = {}) {
+  const { categories = null, title = null, publishedAt = null } = options || {};
   try {
     // Validate inputs
     if (!recipientPubkey || typeof recipientPubkey !== 'string') {
       return { sent: false, reason: 'Invalid recipient pubkey' };
     }
-    if (!sha256 || typeof sha256 !== 'string') {
+    // sha256 is optional — relay-only actions (ban_pubkey, delete_event) may not
+    // have a content hash. Templates handle sha256=null by omitting the content link.
+    if (sha256 && typeof sha256 !== 'string') {
       return { sent: false, reason: 'Invalid sha256' };
     }
 
@@ -497,7 +558,7 @@ export async function sendModerationDM(recipientPubkey, sha256, action, reason, 
     }
 
     // Build message: prefer category-specific template, fall back to generic
-    const message = selectTemplate(action, reason, categories);
+    const message = selectTemplate(action, reason, categories, sha256, title, publishedAt);
     if (!message) {
       return { sent: false, reason: `Unknown action: ${action}` };
     }
@@ -553,7 +614,7 @@ export async function sendModerationDM(recipientPubkey, sha256, action, reason, 
       console.log('[DM] DM store not available, skipping log');
     }
 
-    console.log(`[DM] Sent ${action} notification to ${recipientPubkey.substring(0, 16)}... for ${sha256.substring(0, 16)}... (${success} relays)`);
+    console.log(`[DM] Sent ${action} notification to ${recipientPubkey.substring(0, 16)}...${sha256 ? ` for ${sha256.substring(0, 16)}...` : ''} (${success} relays)`);
     return { sent: true, relaysPublished: success };
   } catch (err) {
     console.error('[DM] Unexpected error sending moderation DM:', err.message);
@@ -566,13 +627,14 @@ export async function sendModerationDM(recipientPubkey, sha256, action, reason, 
  * Never throws.
  *
  * @param {string} reporterPubkey - Hex pubkey of the reporter
- * @param {string} sha256 - Video hash that was reported
- * @param {string} outcome - Human-readable outcome (e.g., "removed", "age-restricted")
+ * @param {string} sha256 - Content hash that was reported
+ * @param {string} action - Moderation action (PERMANENT_BAN, AGE_RESTRICTED, SAFE, etc.)
  * @param {Object} env
  * @param {Object} ctx
+ * @param {Object} [metadata] - Optional content metadata {title, publishedAt, reportedAt}
  * @returns {Promise<{ sent: boolean, reason?: string }>}
  */
-export async function sendReportOutcomeDM(reporterPubkey, sha256, outcome, env, ctx) {
+export async function sendReportOutcomeDM(reporterPubkey, sha256, action, env, ctx, metadata = {}) {
   try {
     if (!reporterPubkey || typeof reporterPubkey !== 'string') {
       return { sent: false, reason: 'Invalid reporter pubkey' };
@@ -586,7 +648,7 @@ export async function sendReportOutcomeDM(reporterPubkey, sha256, outcome, env, 
       return { sent: false, reason: err.message };
     }
 
-    const message = TEMPLATES.REPORT_OUTCOME(outcome || 'reviewed');
+    const message = getReportOutcomeMessage(action, sha256, metadata.title, metadata.publishedAt, metadata.reportedAt);
 
     const withinLimit = await checkRateLimit(reporterPubkey, env);
     if (!withinLimit) {
@@ -637,6 +699,81 @@ export async function sendReportOutcomeDM(reporterPubkey, sha256, outcome, env, 
     console.error('[DM] Unexpected error sending report outcome DM:', err.message);
     return { sent: false, reason: err.message };
   }
+}
+
+/**
+ * Notify all reporters for a piece of content about the moderation outcome.
+ * Queries user_reports for reporter pubkeys, sends each a report outcome DM.
+ * Never throws. Logs failures per-reporter.
+ *
+ * @param {string} sha256 - Content hash
+ * @param {string} action - Moderation action (PERMANENT_BAN, AGE_RESTRICTED, SAFE, etc.)
+ * @param {Object} env - Environment with BLOSSOM_DB and NOSTR_PRIVATE_KEY
+ * @param {string} logPrefix - Log prefix for context (e.g., "[ADMIN]", "[MODERATION]")
+ * @returns {Promise<{ notified: number, failed: number }>}
+ */
+export async function notifyReporters(sha256, action, env, logPrefix = '[DM]') {
+  if (!env.NOSTR_PRIVATE_KEY) {
+    return { notified: 0, failed: 0 };
+  }
+
+  // Don't notify reporters for intermediate states. QUARANTINE and REVIEW are
+  // pending human review -- the reporter should hear back when it resolves to
+  // a final outcome (ban, age-restrict, or no-action).
+  const INTERMEDIATE_ACTIONS = ['QUARANTINE', 'REVIEW'];
+  if (INTERMEDIATE_ACTIONS.includes(action)) {
+    return { notified: 0, failed: 0 };
+  }
+
+  let reporters;
+  try {
+    const { getReporterPubkeys } = await import('../reports.mjs');
+    reporters = await getReporterPubkeys(env.BLOSSOM_DB, sha256);
+  } catch (err) {
+    console.error(`${logPrefix} Reporter notification lookup failed:`, err.message);
+    return { notified: 0, failed: 0 };
+  }
+
+  if (reporters.length === 0) {
+    return { notified: 0, failed: 0 };
+  }
+
+  // Fetch content metadata once for all reporters
+  let contentMeta = {};
+  try {
+    const row = await env.BLOSSOM_DB.prepare(
+      'SELECT title, published_at FROM moderation_results WHERE sha256 = ?'
+    ).bind(sha256).first();
+    if (row) {
+      contentMeta = { title: row.title, publishedAt: row.published_at };
+    }
+  } catch (err) {
+    console.error(`${logPrefix} Content metadata lookup failed:`, err.message);
+  }
+
+  let notified = 0;
+  let failed = 0;
+  for (const reporter of reporters) {
+    try {
+      const result = await sendReportOutcomeDM(reporter.pubkey, sha256, action, env, null, {
+        title: contentMeta.title,
+        publishedAt: contentMeta.publishedAt,
+        reportedAt: reporter.reportedAt,
+      });
+      if (result.sent) {
+        notified++;
+        console.log(`${logPrefix} Reporter DM sent to ${reporter.pubkey.substring(0, 16)}...`);
+      } else {
+        failed++;
+        console.error(`${logPrefix} Reporter DM not sent to ${reporter.pubkey.substring(0, 16)}...: ${result.reason}`);
+      }
+    } catch (rptErr) {
+      failed++;
+      console.error(`${logPrefix} Reporter DM failed for ${reporter.pubkey.substring(0, 16)}...:`, rptErr.message);
+    }
+  }
+
+  return { notified, failed };
 }
 
 /**
