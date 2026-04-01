@@ -9,7 +9,7 @@ import { moderateVideo, classifyVideoOnly } from './moderation/pipeline.mjs';
 import { publishToFaro, publishToContentRelay, publishLabelEvent } from './nostr/publisher.mjs';
 import { requireAuth, getAuthenticatedUser } from './admin/auth.mjs';
 import { verifyZeroTrustJWT } from './admin/zerotrust.mjs';
-import { fetchNostrEventBySha256, parseVideoEventMetadata } from './nostr/relay-client.mjs';
+import { fetchNostrEventBySha256, fetchNostrVideoEventsByDTag, parseVideoEventMetadata } from './nostr/relay-client.mjs';
 import { pollRelayForVideos, getLastPollTimestamp, setLastPollTimestamp, getPollingStatus } from './nostr/relay-poller.mjs';
 import { getPublicKey } from 'nostr-tools/pure';
 import { hexToBytes, bytesToHex } from '@noble/hashes/utils';
@@ -379,6 +379,10 @@ function getRelayAdminHeaders(env) {
   return headers;
 }
 
+function getNostrLookupRelays(env) {
+  return env.NOSTR_RELAY_URL ? [env.NOSTR_RELAY_URL] : ['wss://relay.divine.video'];
+}
+
 function getTranscriptSourceUrl(sha256, env) {
   return `https://${env.CDN_DOMAIN || 'media.divine.video'}/${sha256}.vtt`;
 }
@@ -438,7 +442,7 @@ async function callRelayAdminAction(env, payload) {
  */
 async function deleteEventFromRelayBySha256(sha256, env, source = 'unknown') {
   try {
-    const event = await fetchNostrEventBySha256(sha256, ['wss://relay.divine.video'], env);
+    const event = await fetchNostrEventBySha256(sha256, getNostrLookupRelays(env), env);
     if (!event?.id) {
       console.log(`[RELAY-ENFORCE] ${sha256} - No relay event found, skipping delete`);
       return { success: false, reason: 'no_event_found' };
@@ -455,6 +459,40 @@ async function deleteEventFromRelayBySha256(sha256, env, source = 'unknown') {
     console.error(`[RELAY-ENFORCE] ${sha256} - Failed to delete from relay:`, error.message);
     return { success: false, error: error.message };
   }
+}
+
+async function deleteRelayEventVersions(eventId, sha256, env, reason) {
+  const fallbackEventId = isValidSha256(eventId) ? eventId : null;
+  const events = await fetchNostrVideoEventsByDTag(sha256, getNostrLookupRelays(env), env);
+  const uniqueEventIds = [...new Set([
+    ...events.map((event) => event?.id).filter(isValidSha256),
+    fallbackEventId
+  ].filter(Boolean))];
+
+  if (uniqueEventIds.length === 0) {
+    return {
+      success: false,
+      attemptedCount: 0,
+      deletedCount: 0,
+      deletedEventIds: [],
+      reason: 'no_event_found'
+    };
+  }
+
+  for (const id of uniqueEventIds) {
+    await callRelayAdminAction(env, {
+      action: 'delete_event',
+      eventId: id,
+      reason
+    });
+  }
+
+  return {
+    success: true,
+    attemptedCount: uniqueEventIds.length,
+    deletedCount: uniqueEventIds.length,
+    deletedEventIds: uniqueEventIds
+  };
 }
 
 async function fetchLookupNostrContext(hash, env) {
@@ -1281,11 +1319,14 @@ export default {
 
       const body = await request.json().catch(() => ({}));
       const moderatorEmail = getAuthenticatedUser(request) || 'admin';
-      const relayResult = await callRelayAdminAction(env, {
-        action: 'delete_event',
-        eventId,
-        reason: body.reason || `Deleted by moderator ${moderatorEmail}`
-      });
+      const reason = body.reason || `Deleted by moderator ${moderatorEmail}`;
+      const relayResult = isValidSha256(body.sha256)
+        ? await deleteRelayEventVersions(eventId, body.sha256, env, reason)
+        : await callRelayAdminAction(env, {
+          action: 'delete_event',
+          eventId,
+          reason
+        });
 
       return new Response(JSON.stringify({
         success: true,
