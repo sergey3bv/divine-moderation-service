@@ -311,20 +311,65 @@ function parseOptionalString(value) {
   return typeof value === 'string' && value.length > 0 ? value : null;
 }
 
+function parseOptionalObject(value) {
+  return value && typeof value === 'object' && !Array.isArray(value) ? value : null;
+}
+
 function parseStoredAdminSnapshot(rawResponse) {
   const parsed = parseMaybeJson(rawResponse, null);
-  const snapshot = parsed?.nostrSnapshot && typeof parsed.nostrSnapshot === 'object'
-    ? parsed.nostrSnapshot
-    : (parsed && typeof parsed === 'object' ? parsed : null);
+  const root = parseOptionalObject(parsed);
+  const snapshot = mergePresentFields(
+    parseOptionalObject(root?.nostrSnapshot) || {},
+    parseOptionalObject(root?.nostrContext) || {}
+  ) || root;
 
   if (!snapshot) {
     return null;
   }
 
-  return {
+  const uploadedBy = [
+    root?.uploadedBy,
+    root?.uploaded_by,
+    snapshot?.uploadedBy,
+    snapshot?.uploaded_by,
+    root?.pubkey,
+    snapshot?.pubkey
+  ].find((candidate) => isValidPubkey(candidate)) || null;
+
+  const parsedSnapshot = {
+    uploadedBy,
+    title: parseOptionalString(root?.title ?? snapshot.title),
+    author: parseOptionalString(root?.author ?? snapshot.author),
+    eventId: parseOptionalString(
+      root?.nostrEventId
+      ?? root?.nostr_event_id
+      ?? root?.eventId
+      ?? root?.event_id
+      ?? snapshot.eventId
+      ?? snapshot.event_id
+    ),
+    contentUrl: parseOptionalString(
+      root?.contentUrl
+      ?? root?.content_url
+      ?? snapshot.url
+      ?? snapshot.contentUrl
+      ?? snapshot.content_url
+    ),
+    sourceUrl: parseOptionalString(root?.sourceUrl ?? root?.source_url ?? snapshot.sourceUrl ?? snapshot.source_url),
+    platform: parseOptionalString(root?.platform ?? snapshot.platform),
+    client: parseOptionalString(root?.client ?? snapshot.client),
+    publishedAt: parseOptionalInteger(root?.publishedAt ?? root?.published_at ?? snapshot.publishedAt ?? snapshot.published_at),
+    archivedAt: parseOptionalString(root?.archivedAt ?? root?.archived_at ?? snapshot.archivedAt ?? snapshot.archived_at),
+    importedAt: parseOptionalInteger(root?.importedAt ?? root?.imported_at ?? snapshot.importedAt ?? snapshot.imported_at),
+    vineHashId: parseOptionalString(root?.vineHashId ?? root?.vine_hash_id ?? snapshot.vineHashId ?? snapshot.vine_hash_id),
+    vineUserId: parseOptionalString(root?.vineUserId ?? root?.vine_user_id ?? snapshot.vineUserId ?? snapshot.vine_user_id),
     stableId: parseOptionalString(snapshot.stableId ?? snapshot.stable_id ?? snapshot.dTag ?? snapshot.d_tag),
-    content: parseOptionalString(snapshot.content ?? snapshot.summary ?? snapshot.contentText ?? snapshot.content_text)
+    content: parseOptionalString(root?.content ?? snapshot.content ?? snapshot.summary ?? snapshot.contentText ?? snapshot.content_text),
+    createdAt: parseOptionalInteger(root?.createdAt ?? root?.created_at ?? snapshot.createdAt ?? snapshot.created_at),
+    proofmode: parseOptionalObject(root?.proofmode ?? snapshot.proofmode)
   };
+
+  return Object.values(parsedSnapshot).some((value) => value !== null) ? parsedSnapshot : null;
 }
 
 function extractStableIdFromDivineUrl(divineUrl) {
@@ -346,30 +391,49 @@ function extractStableIdFromDivineUrl(divineUrl) {
 }
 
 function buildStoredNostrContext(row, uploadedBy = null, options = {}) {
-  const { includePubkey = true, stableId = null, content = null } = options;
+  const {
+    includePubkey = true,
+    title = null,
+    author = null,
+    url = null,
+    sourceUrl = null,
+    platform = null,
+    client = null,
+    publishedAt = null,
+    archivedAt = null,
+    importedAt = null,
+    vineHashId = null,
+    vineUserId = null,
+    eventId = null,
+    createdAt = null,
+    stableId = null,
+    content = null,
+    proofmode = null
+  } = options;
   if (!row) {
     return null;
   }
 
   const metadata = {
-    title: row.title || null,
-    author: row.author || null,
-    platform: null,
-    client: null,
+    title: pickFirstPresentValue(row.title, title),
+    author: pickFirstPresentValue(row.author, author),
+    platform: pickFirstPresentValue(platform),
+    client: pickFirstPresentValue(client),
     loops: null,
     likes: null,
     comments: null,
-    url: row.content_url || null,
-    sourceUrl: null,
-    publishedAt: parseOptionalInteger(row.published_at),
-    archivedAt: null,
-    importedAt: null,
-    vineHashId: null,
-    vineUserId: null,
+    url: pickFirstPresentValue(row.content_url, url),
+    sourceUrl: pickFirstPresentValue(sourceUrl),
+    publishedAt: pickFirstPresentValue(parseOptionalInteger(row.published_at), publishedAt),
+    archivedAt: pickFirstPresentValue(archivedAt),
+    importedAt: pickFirstPresentValue(importedAt),
+    vineHashId: pickFirstPresentValue(vineHashId),
+    vineUserId: pickFirstPresentValue(vineUserId),
     content: parseOptionalString(content),
-    eventId: row.event_id || null,
-    createdAt: null,
-    stableId: parseOptionalString(stableId)
+    eventId: pickFirstPresentValue(row.event_id, eventId),
+    createdAt: pickFirstPresentValue(createdAt),
+    stableId: parseOptionalString(stableId),
+    proofmode: parseOptionalObject(proofmode)
   };
 
   const hasStoredMetadata = Object.values(metadata).some((value) => value !== null);
@@ -413,6 +477,106 @@ async function fetchFunnelcakeLookupVideo(identifier, env) {
   }
 
   return null;
+}
+
+async function fetchStoredVideoMetadata(sha256, env) {
+  try {
+    return await env.BLOSSOM_DB.prepare(`
+      SELECT sha256, video_guid, current_status, current_hls_url, current_thumbnail_url, current_mp4_url, uploaded_by, uploaded_at
+      FROM video_metadata
+      WHERE sha256 = ?
+    `).bind(sha256).first();
+  } catch {
+    return null;
+  }
+}
+
+async function fetchLatestWebhookEvent(sha256, env) {
+  try {
+    return await env.BLOSSOM_DB.prepare(`
+      SELECT sha256, video_guid, hls_url, mp4_url, thumbnail_url, received_at, status_name
+      FROM bunny_webhook_events e1
+      WHERE e1.sha256 = ?
+        AND received_at = (
+          SELECT MAX(received_at) FROM bunny_webhook_events e2 WHERE e2.sha256 = e1.sha256
+        )
+      LIMIT 1
+    `).bind(sha256).first();
+  } catch {
+    return null;
+  }
+}
+
+function buildStoredAdminFallbackRow(baseRow = {}, storedSnapshot = null, videoMetadataRow = null, webhookEventRow = null) {
+  return {
+    title: pickFirstPresentValue(baseRow?.title, storedSnapshot?.title),
+    author: pickFirstPresentValue(baseRow?.author, storedSnapshot?.author),
+    event_id: pickFirstPresentValue(baseRow?.event_id, storedSnapshot?.eventId),
+    content_url: pickFirstPresentValue(
+      baseRow?.content_url,
+      storedSnapshot?.contentUrl,
+      videoMetadataRow?.current_mp4_url,
+      webhookEventRow?.mp4_url,
+      videoMetadataRow?.current_hls_url,
+      webhookEventRow?.hls_url
+    ),
+    published_at: pickFirstPresentValue(baseRow?.published_at, storedSnapshot?.publishedAt)
+  };
+}
+
+function buildAdminContextStatus(video) {
+  const nostrContext = video?.nostrContext || {};
+  const hasPublisher = Boolean(pickFirstPresentValue(
+    video?.publisherProfile?.display_name,
+    video?.uploaded_by,
+    video?.author,
+    nostrContext.author,
+    nostrContext.pubkey
+  ));
+  const hasPostIdentity = Boolean(pickFirstPresentValue(
+    video?.title,
+    video?.content_text,
+    nostrContext.title,
+    nostrContext.content,
+    video?.eventId,
+    video?.event_id,
+    video?.stableId,
+    nostrContext.eventId,
+    nostrContext.stableId
+  ));
+  const hasMetadataSignals = Boolean(pickFirstPresentValue(
+    nostrContext.sourceUrl,
+    nostrContext.platform,
+    nostrContext.client,
+    nostrContext.publishedAt,
+    nostrContext.archivedAt,
+    nostrContext.importedAt,
+    nostrContext.vineHashId,
+    nostrContext.vineUserId
+  ));
+  const hasSpecificContentUrl = Boolean(
+    isPresentValue(video?.content_url)
+    && video.content_url !== video.cdnUrl
+  );
+
+  if (!hasPublisher && !hasPostIdentity && !hasMetadataSignals && !hasSpecificContentUrl) {
+    return {
+      state: 'orphaned',
+      reason: 'legacy_moderation_row_without_context'
+    };
+  }
+
+  if (!hasPublisher || !hasPostIdentity) {
+    return {
+      state: 'partial',
+      reason: 'partial_context_available'
+    };
+  }
+
+  return {
+    state: 'resolved',
+    reason: null
+  };
 }
 
 function mergeLookupMetadata(baseVideo, funnelcakeVideo) {
@@ -879,7 +1043,8 @@ async function enrichAdminLookupVideo(video, env, identifierOrOptions = null, ma
     provenance: buildProvenance({
       nostrContext: enriched.nostrContext,
       receivedAt: enriched.receivedAt || enriched.moderated_at || null
-    })
+    }),
+    contextStatus: buildAdminContextStatus(enriched)
   };
 
   return enriched;
@@ -978,6 +1143,10 @@ async function getAdminLookupVideo(identifier, env, options = {}) {
   const hash = isValidSha256(identifier) ? identifier.toLowerCase() : null;
   const cdnUrl = `https://${env.CDN_DOMAIN || 'media.divine.video'}/${hash}`;
   if (hash) {
+    const [videoMetadataRow, webhookEventRow] = await Promise.all([
+      fetchStoredVideoMetadata(hash, env),
+      fetchLatestWebhookEvent(hash, env)
+    ]);
     const moderatedRow = await env.BLOSSOM_DB.prepare(`
       SELECT sha256, action, provider, scores, categories, raw_response, moderated_at, reviewed_by, reviewed_at, review_notes, uploaded_by,
              title, author, event_id, content_url, published_at
@@ -990,16 +1159,36 @@ async function getAdminLookupVideo(identifier, env, options = {}) {
 
     if (moderatedRow || kvModeration) {
       const moderatedAt = kvModeration?.moderated_at || moderatedRow?.moderated_at || null;
-      const uploadedBy = moderatedRow?.uploaded_by || kvModeration?.uploadedBy || null;
       const storedSnapshot = parseStoredAdminSnapshot(moderatedRow?.raw_response);
-      const persistedNostrContext = buildStoredNostrContext(moderatedRow, uploadedBy, {
+      const fallbackRow = buildStoredAdminFallbackRow(moderatedRow, storedSnapshot, videoMetadataRow, webhookEventRow);
+      const uploadedBy = pickFirstPresentValue(
+        moderatedRow?.uploaded_by,
+        kvModeration?.uploadedBy,
+        storedSnapshot?.uploadedBy,
+        videoMetadataRow?.uploaded_by
+      );
+      const eventId = fallbackRow.event_id || null;
+      const persistedContentUrl = fallbackRow.content_url || null;
+      const persistedPublishedAt = fallbackRow.published_at || null;
+      const persistedNostrContext = buildStoredNostrContext(fallbackRow, uploadedBy, {
+        title: storedSnapshot?.title || null,
+        author: storedSnapshot?.author || null,
+        url: storedSnapshot?.contentUrl || null,
+        sourceUrl: storedSnapshot?.sourceUrl || null,
+        platform: storedSnapshot?.platform || null,
+        client: storedSnapshot?.client || null,
+        publishedAt: storedSnapshot?.publishedAt || null,
+        archivedAt: storedSnapshot?.archivedAt || null,
+        importedAt: storedSnapshot?.importedAt || null,
+        vineHashId: storedSnapshot?.vineHashId || null,
+        vineUserId: storedSnapshot?.vineUserId || null,
+        eventId: storedSnapshot?.eventId || null,
+        createdAt: storedSnapshot?.createdAt || null,
         includePubkey: true,
         stableId: storedSnapshot?.stableId || null,
-        content: storedSnapshot?.content || null
+        content: storedSnapshot?.content || null,
+        proofmode: storedSnapshot?.proofmode || null
       });
-      const eventId = moderatedRow?.event_id || null;
-      const persistedContentUrl = moderatedRow?.content_url || null;
-      const persistedPublishedAt = moderatedRow?.published_at || null;
       return enrichAdminLookupVideo({
         sha256: hash,
         action: kvModeration?.action || moderatedRow?.action || 'REVIEW',
@@ -1017,9 +1206,9 @@ async function getAdminLookupVideo(identifier, env, options = {}) {
         previousAction: kvModeration?.previousAction || null,
         detailedCategories: parseMaybeJson(kvModeration?.detailedCategories, null),
         categoryVerifications: parseMaybeJson(kvModeration?.categoryVerifications, {}) || {},
-        cdnUrl: kvModeration?.cdnUrl || persistedContentUrl || cdnUrl,
-        title: moderatedRow?.title || null,
-        author: moderatedRow?.author || null,
+        cdnUrl: kvModeration?.cdnUrl || persistedContentUrl || videoMetadataRow?.current_mp4_url || webhookEventRow?.mp4_url || cdnUrl,
+        title: fallbackRow.title || null,
+        author: fallbackRow.author || null,
         content_url: persistedContentUrl,
         content_text: storedSnapshot?.content || null,
         published_at: persistedPublishedAt,
@@ -2272,7 +2461,36 @@ export default {
           FROM moderation_results
           WHERE sha256 = ?
         `).bind(sha256).first();
-        const storedMetadata = buildStoredNostrContext(storedRow, storedRow?.uploaded_by || null, { includePubkey: false });
+        const [videoMetadataRow, webhookEventRow, rawModerationRow] = await Promise.all([
+          fetchStoredVideoMetadata(sha256, env),
+          fetchLatestWebhookEvent(sha256, env),
+          env.BLOSSOM_DB.prepare(`SELECT raw_response FROM moderation_results WHERE sha256 = ?`).bind(sha256).first().catch(() => null)
+        ]);
+        const storedSnapshot = parseStoredAdminSnapshot(rawModerationRow?.raw_response);
+        const fallbackRow = buildStoredAdminFallbackRow(storedRow, storedSnapshot, videoMetadataRow, webhookEventRow);
+        const storedMetadata = buildStoredNostrContext(fallbackRow, pickFirstPresentValue(
+          storedRow?.uploaded_by,
+          storedSnapshot?.uploadedBy,
+          videoMetadataRow?.uploaded_by
+        ), {
+          includePubkey: false,
+          title: storedSnapshot?.title || null,
+          author: storedSnapshot?.author || null,
+          url: storedSnapshot?.contentUrl || null,
+          sourceUrl: storedSnapshot?.sourceUrl || null,
+          platform: storedSnapshot?.platform || null,
+          client: storedSnapshot?.client || null,
+          publishedAt: storedSnapshot?.publishedAt || null,
+          archivedAt: storedSnapshot?.archivedAt || null,
+          importedAt: storedSnapshot?.importedAt || null,
+          vineHashId: storedSnapshot?.vineHashId || null,
+          vineUserId: storedSnapshot?.vineUserId || null,
+          eventId: storedSnapshot?.eventId || null,
+          createdAt: storedSnapshot?.createdAt || null,
+          stableId: storedSnapshot?.stableId || null,
+          content: storedSnapshot?.content || null,
+          proofmode: storedSnapshot?.proofmode || null
+        });
 
         if (storedMetadata) {
           return new Response(JSON.stringify({ found: true, metadata: storedMetadata }), {
