@@ -1798,6 +1798,60 @@ describe('admin video proxy format fallback', () => {
     }
   });
 
+  it('falls back to stored moderation content_url when CDN and admin bypass miss', async () => {
+    const originalFetch = globalThis.fetch;
+    const storedUrl = 'https://blossom.primal.net/imported-video.mp4';
+    const fetchedUrls = [];
+
+    globalThis.fetch = async (url) => {
+      fetchedUrls.push(String(url));
+      if (String(url) === `https://media.divine.video/${SHA256}`) {
+        return new Response('not found', { status: 404 });
+      }
+      if (String(url) === storedUrl) {
+        return new Response('stored-source-bytes', {
+          status: 200,
+          headers: { 'Content-Type': 'video/mp4' }
+        });
+      }
+      throw new Error(`Unexpected fetch: ${url}`);
+    };
+
+    try {
+      const response = await worker.fetch(
+        new Request(`https://moderation.admin.divine.video/admin/video/${SHA256}.mp4`, {
+          headers: { 'Cf-Access-Authenticated-User-Email': 'mod@divine.video' }
+        }),
+        createEnv({
+          BLOSSOM_DB: createDbMock({
+            moderationResults: new Map([[SHA256, {
+              sha256: SHA256,
+              action: 'REVIEW',
+              provider: 'hiveai',
+              scores: JSON.stringify({ nudity: 0.4 }),
+              categories: JSON.stringify(['nudity']),
+              moderated_at: '2026-03-07T00:00:00.000Z',
+              reviewed_by: null,
+              reviewed_at: null,
+              uploaded_by: 'b'.repeat(64),
+              content_url: storedUrl
+            }]])
+          })
+        })
+      );
+
+      expect(response.status).toBe(200);
+      expect(response.headers.get('Content-Type')).toBe('video/mp4');
+      expect(response.headers.get('X-Admin-Proxy')).toBe('stored-content-url');
+      expect(fetchedUrls).toEqual([
+        `https://media.divine.video/${SHA256}`,
+        storedUrl
+      ]);
+    } finally {
+      globalThis.fetch = originalFetch;
+    }
+  });
+
   it('falls back to transcoded MP4 for video/x-matroska (MKV)', async () => {
     const originalFetch = globalThis.fetch;
     globalThis.fetch = async (url) => {

@@ -550,6 +550,48 @@ async function fetchTranscriptAsset(sha256, env) {
   };
 }
 
+function appendAbsoluteUrlCandidate(candidates, seen, value) {
+  if (!isPresentValue(value) || typeof value !== 'string') {
+    return;
+  }
+
+  if (!/^https?:\/\//i.test(value)) {
+    return;
+  }
+
+  if (seen.has(value)) {
+    return;
+  }
+
+  seen.add(value);
+  candidates.push(value);
+}
+
+async function getStoredAdminVideoSourceUrls(sha256, env) {
+  const candidates = [];
+  const seen = new Set();
+
+  try {
+    const kvModeration = parseMaybeJson(await env.MODERATION_KV.get(`moderation:${sha256}`), null);
+    appendAbsoluteUrlCandidate(candidates, seen, kvModeration?.cdnUrl);
+  } catch {
+    // Ignore KV lookup failures and continue with D1 fallback.
+  }
+
+  try {
+    const row = await env.BLOSSOM_DB.prepare(`
+      SELECT content_url
+      FROM moderation_results
+      WHERE sha256 = ?
+    `).bind(sha256).first();
+    appendAbsoluteUrlCandidate(candidates, seen, row?.content_url);
+  } catch {
+    // Ignore D1 lookup failures and keep the proxy behavior best-effort.
+  }
+
+  return candidates;
+}
+
 async function callRelayAdminAction(env, payload) {
   const response = await fetch(`${getRelayAdminUrl(env)}/api/moderate`, {
     method: 'POST',
@@ -2626,6 +2668,32 @@ export default {
             });
           }
           console.error(`[ADMIN] Admin bypass returned ${bypassResponse.status} for ${sha256}`);
+        }
+
+        const storedSourceUrls = await getStoredAdminVideoSourceUrls(sha256, env);
+        for (const sourceUrl of storedSourceUrls) {
+          console.log(`[ADMIN] Trying stored content URL for ${sha256}: ${sourceUrl}`);
+          const storedSourceResponse = await fetch(sourceUrl, { headers: buildUpstreamHeaders() });
+          if (!(storedSourceResponse.ok || storedSourceResponse.status === 206)) {
+            console.warn(`[ADMIN] Stored content URL returned ${storedSourceResponse.status} for ${sha256}`);
+            continue;
+          }
+
+          const contentType = storedSourceResponse.headers.get('Content-Type') || 'video/mp4';
+          if (!BROWSER_PLAYABLE_TYPES.has(contentType)) {
+            console.warn(`[ADMIN] Stored content URL returned non-playable ${contentType} for ${sha256}`);
+            continue;
+          }
+
+          console.log(`[ADMIN] Serving video from stored content URL: ${sha256}`);
+          return new Response(storedSourceResponse.body, {
+            status: storedSourceResponse.status,
+            headers: passthroughResponseHeaders(storedSourceResponse, {
+              'Content-Type': contentType,
+              'Cache-Control': 'private, no-store',
+              'X-Admin-Proxy': 'stored-content-url'
+            })
+          });
         }
 
         return new Response(JSON.stringify({
