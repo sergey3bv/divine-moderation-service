@@ -17,6 +17,8 @@ import { hexToBytes, bytesToHex } from '@noble/hashes/utils';
 import dashboardHTML from './admin/dashboard.html';
 import swipeReviewHTML from './admin/swipe-review.html';
 import messagesHTML from './admin/messages.html';
+import { buildCreatorContext } from './admin/creator-context.mjs';
+import { buildProvenance } from './admin/provenance.mjs';
 import { initReportsTable, addReport } from './reports.mjs';
 import { initUploaderEnforcementTable, getUploaderEnforcement, setUploaderEnforcement, applyUploaderEnforcementToResult } from './uploader-enforcement.mjs';
 import { formatForStorage, formatForGorse, formatForFunnelcake } from './classification/pipeline.mjs';
@@ -209,6 +211,39 @@ function getLegacyFunnelcakeBaseUrl(env) {
   return env.FUNNELCAKE_API_BASE_URL || DEFAULT_LEGACY_FUNNELCAKE_BASE_URL;
 }
 
+function buildAdminNostrContext({
+  event = null,
+  metadata = null,
+  authorFallback = null,
+  pubkey = null,
+  eventId = null
+} = {}) {
+  const resolvedPubkey = pickFirstPresentValue(pubkey, event?.pubkey);
+  const resolvedEventId = pickFirstPresentValue(eventId, event?.id, metadata?.eventId);
+
+  return {
+    title: pickFirstPresentValue(metadata?.title),
+    author: pickFirstPresentValue(metadata?.author, authorFallback),
+    client: pickFirstPresentValue(metadata?.client),
+    content: pickFirstPresentValue(metadata?.content, event?.content),
+    pubkey: resolvedPubkey ? `${resolvedPubkey.substring(0, 16)}...` : null,
+    eventId: resolvedEventId,
+    platform: pickFirstPresentValue(metadata?.platform),
+    loops: metadata?.loops ?? null,
+    likes: metadata?.likes ?? null,
+    comments: metadata?.comments ?? null,
+    url: pickFirstPresentValue(metadata?.url),
+    sourceUrl: pickFirstPresentValue(metadata?.sourceUrl),
+    publishedAt: metadata?.publishedAt ?? null,
+    archivedAt: metadata?.archivedAt ?? null,
+    importedAt: metadata?.importedAt ?? null,
+    vineHashId: pickFirstPresentValue(metadata?.vineHashId),
+    vineUserId: pickFirstPresentValue(metadata?.vineUserId),
+    proofmode: metadata?.proofmode ?? null,
+    createdAt: metadata?.createdAt ?? event?.created_at ?? null
+  };
+}
+
 function buildFunnelcakeVideoLookup(eventResponse, identifier) {
   if (!eventResponse?.event) {
     return null;
@@ -238,26 +273,11 @@ function buildFunnelcakeVideoLookup(eventResponse, identifier) {
     title: metadata.title || null,
     published_at: metadata.publishedAt || null,
     createdAt: event.created_at ? new Date(event.created_at * 1000).toISOString() : null,
-    nostrContext: {
-      title: metadata.title || null,
-      author: metadata.author || stats.author_name || null,
-      client: metadata.client || null,
-      content: metadata.content || event.content || null,
-      pubkey: event.pubkey ? `${event.pubkey.substring(0, 16)}...` : null,
-      eventId: event.id,
-      platform: metadata.platform || null,
-      loops: metadata.loops ?? null,
-      likes: metadata.likes ?? null,
-      comments: metadata.comments ?? null,
-      url: metadata.url || videoUrl || null,
-      sourceUrl: metadata.sourceUrl || null,
-      publishedAt: metadata.publishedAt ?? null,
-      archivedAt: metadata.archivedAt ?? null,
-      importedAt: metadata.importedAt ?? null,
-      vineHashId: metadata.vineHashId || null,
-      vineUserId: metadata.vineUserId || null,
-      createdAt: metadata.createdAt || event.created_at || null
-    },
+    nostrContext: buildAdminNostrContext({
+      event,
+      metadata,
+      authorFallback: stats.author_name || null
+    }),
     publisherProfile: {
       display_name: stats.author_name || null,
       picture: stats.author_avatar || null
@@ -658,18 +678,42 @@ async function fetchRelayFirstAdminContext(identifier, video, env) {
   return null;
 }
 
-async function enrichAdminLookupVideo(video, env, identifier = null) {
+async function getUploaderStatsRow(db, pubkey) {
+  if (!pubkey) {
+    return null;
+  }
+
+  try {
+    return await db.prepare(`
+      SELECT pubkey, total_scanned, flagged_count, banned_count, restricted_count, review_count, last_flagged_at, risk_level
+      FROM uploader_stats
+      WHERE pubkey = ?
+    `).bind(pubkey).first();
+  } catch {
+    return null;
+  }
+}
+
+async function enrichAdminLookupVideo(video, env, identifierOrOptions = null, maybeOptions = {}) {
   if (!video) {
     return null;
   }
 
+  const identifier = typeof identifierOrOptions === 'string' ? identifierOrOptions : null;
+  const options = typeof identifierOrOptions === 'object' && identifierOrOptions !== null && !Array.isArray(identifierOrOptions)
+    ? identifierOrOptions
+    : maybeOptions;
+  const { remoteCreator = true, allowRelayLookup = true } = options;
+
   let enriched = { ...video };
-  const relayFirstContext = await fetchRelayFirstAdminContext(identifier, enriched, env);
+  const relayFirstContext = allowRelayLookup
+    ? await fetchRelayFirstAdminContext(identifier, enriched, env)
+    : null;
   if (relayFirstContext) {
     enriched = mergeLookupMetadata(enriched, relayFirstContext);
   }
 
-  const needsNostrEnrichment = !relayFirstContext && enriched.sha256 && (
+  const needsNostrEnrichment = allowRelayLookup && !relayFirstContext && enriched.sha256 && (
     !enriched.eventId
     || !enriched.divineUrl
     || !enriched.nostrContext
@@ -710,6 +754,7 @@ async function enrichAdminLookupVideo(video, env, identifier = null) {
   });
 
   if (enriched.uploaded_by) {
+    const uploaderStats = await getUploaderStatsRow(env.BLOSSOM_DB, enriched.uploaded_by);
     const uploaderEnforcement = await getUploaderEnforcement(env.BLOSSOM_DB, enriched.uploaded_by).catch(() => null);
 
     enriched = {
@@ -718,9 +763,24 @@ async function enrichAdminLookupVideo(video, env, identifier = null) {
         pubkey: enriched.uploaded_by,
         approval_required: false,
         relay_banned: false
-      }
+      },
+      creatorContext: await buildCreatorContext({
+        pubkey: enriched.uploaded_by,
+        uploaderStats,
+        uploaderEnforcement
+      }, {
+        includeRemote: remoteCreator
+      })
     };
   }
+
+  enriched = {
+    ...enriched,
+    provenance: buildProvenance({
+      nostrContext: enriched.nostrContext,
+      receivedAt: enriched.receivedAt || enriched.moderated_at || null
+    })
+  };
 
   return enriched;
 }
@@ -1268,7 +1328,12 @@ export default {
       }));
 
       // Classifier summaries fetched client-side via /admin/api/classifier/{sha256}
-      const videos = videoRows;
+      const videos = await Promise.all(videoRows.map((row) => enrichAdminLookupVideo(
+        row,
+        env,
+        row.event_id || row.sha256,
+        { remoteCreator: false, allowRelayLookup: false }
+      )));
 
       console.log(`[${requestId}] Returning ${videos.length} videos in ${Date.now() - startTime}ms`);
       return new Response(JSON.stringify({
@@ -1433,10 +1498,7 @@ export default {
               return {
                 sha256: row.sha256,
                 eventId: video.eventId || null,
-                title: video.nostrContext?.title || null,
-                author: video.nostrContext?.author || null,
-                client: video.nostrContext?.client || null,
-                content: video.nostrContext?.content || null,
+                nostrContext: video.nostrContext || null,
                 pubkey: video.uploaded_by || video.uploadedBy || null
               };
             }
@@ -1463,15 +1525,16 @@ export default {
             cdnUrl: `https://${env.CDN_DOMAIN}/${row.sha256}`,
             eventId: nostr.eventId || null,
             uploaded_by: nostr.pubkey || null,
-            nostrContext: {
-              title: nostr.title,
-              author: nostr.author,
-              client: nostr.client,
-              content: nostr.content,
-              pubkey: nostr.pubkey ? nostr.pubkey.substring(0, 16) + '...' : null
-            }
+            nostrContext: nostr.nostrContext || null
           };
         });
+
+        const enrichedVideos = await Promise.all(videos.map((video) => enrichAdminLookupVideo(
+          video,
+          env,
+          video.eventId || video.sha256,
+          { remoteCreator: false, allowRelayLookup: false }
+        )));
 
         // Get total count of untriaged (same logic - latest status not deleted/error)
         const countResult = await env.BLOSSOM_DB.prepare(`
@@ -1487,7 +1550,7 @@ export default {
         `).first();
 
         return new Response(JSON.stringify({
-          videos,
+          videos: enrichedVideos,
           total: countResult?.total || 0,
           offset,
           limit,

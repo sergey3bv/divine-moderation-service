@@ -9,7 +9,12 @@ import worker from './index.mjs';
 
 const SHA256 = 'a'.repeat(64);
 
-function createDbMock({ moderationResults = new Map(), webhookEvents = new Map() } = {}) {
+function createDbMock({
+  moderationResults = new Map(),
+  webhookEvents = new Map(),
+  uploaderEnforcements = new Map(),
+  uploaderStats = new Map(),
+} = {}) {
   return {
     prepare(sql) {
       let bindings = [];
@@ -29,9 +34,18 @@ function createDbMock({ moderationResults = new Map(), webhookEvents = new Map()
           if (sql.includes('FROM bunny_webhook_events')) {
             return webhookEvents.get(bindings[0]) ?? null;
           }
+          if (sql.includes('FROM uploader_enforcement')) {
+            return uploaderEnforcements.get(bindings[0]) ?? null;
+          }
+          if (sql.includes('FROM uploader_stats')) {
+            return uploaderStats.get(bindings[0]) ?? null;
+          }
           return null;
         },
         async all() {
+          if (sql.includes('COUNT(*) as total FROM moderation_results')) {
+            return { results: [{ total: moderationResults.size }] };
+          }
           if (sql.includes('FROM moderation_results')) {
             let results = Array.from(moderationResults.values());
 
@@ -63,7 +77,6 @@ function createDbMock({ moderationResults = new Map(), webhookEvents = new Map()
 
             return { results };
           }
-
           return { results: [] };
         }
       };
@@ -327,49 +340,184 @@ describe('Admin video lookup', () => {
   });
 
   it('returns a moderated video and merges KV override fields', async () => {
+    const pubkey = 'f'.repeat(64);
+    const eventId = 'e'.repeat(64);
+    const originalFetch = globalThis.fetch;
+    globalThis.fetch = async (url) => {
+      if (String(url) === `https://api.divine.video/api/videos/${eventId}`) {
+        return new Response('not found', { status: 404 });
+      }
+
+      if (String(url) === `https://api.divine.video/api/users/${pubkey}`) {
+        return new Response(JSON.stringify({
+          pubkey,
+          profile: {
+            display_name: 'Alice',
+            name: 'alice',
+            picture: 'https://cdn.example.com/alice.png',
+          },
+          social: {
+            follower_count: 100,
+            following_count: 20,
+          },
+          stats: {
+            video_count: 12,
+            total_events: 88,
+            first_activity: '2019-01-01T00:00:00.000Z',
+            last_activity: '2026-04-14T00:00:00.000Z',
+          },
+          engagement: {}
+        }), {
+          headers: { 'Content-Type': 'application/json' }
+        });
+      }
+
+      if (String(url) === `https://api.divine.video/api/users/${pubkey}/social`) {
+        return new Response(JSON.stringify({
+          follower_count: 100,
+          following_count: 20,
+        }), {
+          headers: { 'Content-Type': 'application/json' }
+        });
+      }
+
+      throw new Error(`Unexpected fetch: ${url}`);
+    };
+
+    try {
+      const env = createEnv({
+        BLOSSOM_DB: createDbMock({
+          moderationResults: new Map([[SHA256, {
+            sha256: SHA256,
+            action: 'REVIEW',
+            provider: 'hiveai',
+            scores: JSON.stringify({ nudity: 0.4 }),
+            categories: JSON.stringify(['nudity']),
+            moderated_at: '2026-03-07T00:00:00.000Z',
+            reviewed_by: 'admin',
+            reviewed_at: '2026-03-07T01:00:00.000Z',
+            review_notes: 'legacy note',
+            uploaded_by: pubkey,
+            title: 'Imported clip',
+            author: 'Alice',
+            event_id: eventId,
+            content_url: `https://blossom.primal.net/${SHA256}.mp4`,
+            published_at: 1408579200
+          }]]),
+          uploaderStats: new Map([[pubkey, {
+            pubkey,
+            total_scanned: 5,
+            flagged_count: 2,
+            banned_count: 0,
+            restricted_count: 1,
+            review_count: 1,
+            last_flagged_at: '2026-03-10T00:00:00.000Z',
+            risk_level: 'elevated'
+          }]]),
+          uploaderEnforcements: new Map([[pubkey, {
+            pubkey,
+            approval_required: 0,
+            relay_banned: 1
+          }]])
+        }),
+        MODERATION_KV: {
+          async get(key) {
+            if (key === `moderation:${SHA256}`) {
+              return JSON.stringify({
+                action: 'AGE_RESTRICTED',
+                cdnUrl: `https://blossom.primal.net/${SHA256}.mp4`,
+                scores: { nudity: 0.91, ai_generated: 0.2 },
+                manualOverride: true,
+                previousAction: 'REVIEW',
+                overriddenAt: 1741305600000,
+                reason: 'Manual override'
+              });
+            }
+            return null;
+          },
+          async put() {},
+          async delete() {},
+          async list() { return { keys: [], list_complete: true, cursor: null }; }
+        }
+      });
+
+      const response = await worker.fetch(
+        new Request(`https://moderation.admin.divine.video/admin/api/video/${SHA256}`, {
+          headers: { 'Cf-Access-Authenticated-User-Email': 'mod@divine.video' }
+        }),
+        env
+      );
+
+      expect(response.status).toBe(200);
+      await expect(response.json()).resolves.toMatchObject({
+        video: {
+          sha256: SHA256,
+          action: 'AGE_RESTRICTED',
+          cdnUrl: `https://blossom.primal.net/${SHA256}.mp4`,
+          manualOverride: true,
+          previousAction: 'REVIEW',
+          reason: 'Manual override',
+          scores: {
+            nudity: 0.91
+          },
+          nostrContext: {
+            title: 'Imported clip',
+            author: 'Alice',
+            url: `https://blossom.primal.net/${SHA256}.mp4`,
+            publishedAt: 1408579200
+          },
+          eventId,
+          divineUrl: `https://divine.video/video/${eventId}`,
+          creatorContext: {
+            name: 'Alice',
+            stats: {
+              totalScanned: 5
+            },
+            social: {
+              followerCount: 100
+            },
+            enforcement: {
+              relayBanned: true
+            }
+          },
+          provenance: {
+            status: 'pre_2022_legacy',
+            dateSource: 'published_at',
+            isPre2022: true,
+            reasons: expect.arrayContaining(['published_at:2014-08-21T00:00:00.000Z'])
+          }
+        }
+      });
+    } finally {
+      globalThis.fetch = originalFetch;
+    }
+  });
+
+  it('returns provenance in admin video list payloads', async () => {
+    const pubkey = '1'.repeat(64);
     const env = createEnv({
       BLOSSOM_DB: createDbMock({
         moderationResults: new Map([[SHA256, {
           sha256: SHA256,
-          action: 'REVIEW',
+          action: 'AGE_RESTRICTED',
           provider: 'hiveai',
-          scores: JSON.stringify({ nudity: 0.4 }),
-          categories: JSON.stringify(['nudity']),
+          scores: JSON.stringify({ ai_generated: 0.92 }),
+          categories: JSON.stringify(['ai_generated']),
           moderated_at: '2026-03-07T00:00:00.000Z',
-          reviewed_by: 'admin',
-          reviewed_at: '2026-03-07T01:00:00.000Z',
-          review_notes: 'legacy note',
-          uploaded_by: 'npub123',
-          title: 'Stored title',
-          author: 'Stored author',
-          event_id: '1'.repeat(64),
-          content_url: 'https://media.divine.video/stored.mp4',
-          published_at: '2026-03-06T00:00:00.000Z'
+          reviewed_by: null,
+          reviewed_at: null,
+          uploaded_by: pubkey,
+          title: 'Old archive upload',
+          author: 'Archivist',
+          event_id: '2'.repeat(64),
+          content_url: `https://blossom.primal.net/${SHA256}.mp4`,
+          published_at: 1514678400
         }]])
-      }),
-      MODERATION_KV: {
-        async get(key) {
-          if (key === `moderation:${SHA256}`) {
-            return JSON.stringify({
-              action: 'AGE_RESTRICTED',
-              cdnUrl: `https://blossom.primal.net/${SHA256}.mp4`,
-              scores: { nudity: 0.91, ai_generated: 0.2 },
-              manualOverride: true,
-              previousAction: 'REVIEW',
-              overriddenAt: 1741305600000,
-              reason: 'Manual override'
-            });
-          }
-          return null;
-        },
-        async put() {},
-        async delete() {},
-        async list() { return { keys: [], list_complete: true, cursor: null }; }
-      }
+      })
     });
 
     const response = await worker.fetch(
-      new Request(`https://moderation.admin.divine.video/admin/api/video/${SHA256}`, {
+      new Request('https://moderation.admin.divine.video/admin/api/videos?action=FLAGGED&limit=10', {
         headers: { 'Cf-Access-Authenticated-User-Email': 'mod@divine.video' }
       }),
       env
@@ -377,25 +525,16 @@ describe('Admin video lookup', () => {
 
     expect(response.status).toBe(200);
     await expect(response.json()).resolves.toMatchObject({
-      video: {
-        sha256: SHA256,
-        action: 'AGE_RESTRICTED',
-        cdnUrl: `https://blossom.primal.net/${SHA256}.mp4`,
-        manualOverride: true,
-        previousAction: 'REVIEW',
-        reason: 'Manual override',
-        scores: {
-          nudity: 0.91
-        },
-        nostrContext: {
-          title: 'Stored title',
-          author: 'Stored author',
-          url: 'https://media.divine.video/stored.mp4',
-          publishedAt: '2026-03-06T00:00:00.000Z'
-        },
-        eventId: '1'.repeat(64),
-        divineUrl: `https://divine.video/video/${'1'.repeat(64)}`
-      }
+      videos: [
+        {
+          sha256: SHA256,
+          provenance: {
+            status: 'pre_2022_legacy',
+            dateSource: 'published_at',
+            isPre2022: true
+          }
+        }
+      ]
     });
   });
 
@@ -510,6 +649,33 @@ describe('Admin video lookup', () => {
         });
       }
 
+      if (String(url) === `https://api.divine.video/api/users/${'b'.repeat(64)}`) {
+        return new Response(JSON.stringify({
+          pubkey: 'b'.repeat(64),
+          profile: {
+            display_name: 'REST display name',
+            picture: 'https://cdn.divine.video/rest-avatar.jpg'
+          },
+          stats: {
+            video_count: 3,
+            total_events: 11
+          }
+        }), {
+          status: 200,
+          headers: { 'Content-Type': 'application/json' }
+        });
+      }
+
+      if (String(url) === `https://api.divine.video/api/users/${'b'.repeat(64)}/social`) {
+        return new Response(JSON.stringify({
+          follower_count: 7,
+          following_count: 2
+        }), {
+          status: 200,
+          headers: { 'Content-Type': 'application/json' }
+        });
+      }
+
       throw new Error(`Unexpected fetch: ${url}`);
     };
 
@@ -558,7 +724,9 @@ describe('Admin video lookup', () => {
       });
       expect(restCalls).toEqual([
         `https://api.divine.video/api/videos/${SHA256}`,
-        'https://api.divine.video/api/users/bulk'
+        'https://api.divine.video/api/users/bulk',
+        `https://api.divine.video/api/users/${'b'.repeat(64)}`,
+        `https://api.divine.video/api/users/${'b'.repeat(64)}/social`
       ]);
     } finally {
       globalThis.fetch = originalFetch;
@@ -1143,6 +1311,7 @@ describe('Admin nostr context lookup', () => {
           importedAt: null,
           vineHashId: null,
           vineUserId: null,
+          proofmode: null,
           content: 'REST description',
           eventId: 'd'.repeat(64),
           createdAt: 1700000000
