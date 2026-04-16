@@ -13,6 +13,8 @@ function createDbMock({
   moderationResults = new Map(),
   webhookEvents = new Map(),
   videoMetadata = new Map(),
+  relayVideos = new Map(),
+  relayCreators = new Map(),
   uploaderEnforcements = new Map(),
   uploaderStats = new Map(),
 } = {}) {
@@ -51,6 +53,12 @@ function createDbMock({
           }
           if (sql.includes('FROM video_metadata')) {
             return videoMetadata.get(bindings[0]) ?? null;
+          }
+          if (sql.includes('FROM relay_videos')) {
+            return relayVideos.get(bindings[0]) ?? null;
+          }
+          if (sql.includes('FROM relay_creators')) {
+            return relayCreators.get(bindings[0]) ?? null;
           }
           if (sql.includes('FROM uploader_enforcement')) {
             return uploaderEnforcements.get(bindings[0]) ?? null;
@@ -605,6 +613,138 @@ describe('Admin video lookup', () => {
             publishedAt: 1389756506,
             eventId: 'c'.repeat(64),
             pubkey: `${'b'.repeat(16)}...`
+          }
+        }
+      });
+    } finally {
+      globalThis.fetch = originalFetch;
+    }
+  });
+
+  it('prefers mirrored relay video and creator rows without upstream fetch', async () => {
+    const pubkey = 'f'.repeat(64);
+    const eventId = 'e'.repeat(64);
+    const originalFetch = globalThis.fetch;
+    globalThis.fetch = async (url) => {
+      throw new Error(`Unexpected fetch: ${url}`);
+    };
+
+    try {
+      const env = createEnv({
+        BLOSSOM_DB: createDbMock({
+          moderationResults: new Map([[SHA256, {
+            sha256: SHA256,
+            action: 'REVIEW',
+            provider: 'hiveai',
+            scores: JSON.stringify({ nudity: 0.4 }),
+            categories: JSON.stringify(['nudity']),
+            moderated_at: '2026-03-07T00:00:00.000Z',
+            reviewed_by: null,
+            reviewed_at: null,
+            uploaded_by: null,
+            title: null,
+            author: null,
+            event_id: null,
+            content_url: null,
+            published_at: null
+          }]]),
+          relayVideos: new Map([[SHA256, {
+            sha256: SHA256,
+            event_id: eventId,
+            stable_id: 'mirror-stable-id',
+            pubkey,
+            title: 'Mirrored title',
+            content: 'Mirrored content',
+            summary: 'Mirrored summary',
+            video_url: 'https://media.divine.video/mirrored.mp4',
+            thumbnail_url: 'https://media.divine.video/mirrored.jpg',
+            published_at: '2026-03-06T12:00:00.000Z',
+            created_at: '2026-03-06T11:00:00.000Z',
+            author_name: 'Mirror Author',
+            author_avatar: 'https://cdn.example.com/author.png',
+            raw_json: JSON.stringify({ id: eventId }),
+            synced_at: '2026-04-16T00:00:00.000Z',
+            source_updated_at: '2026-04-15T23:59:00.000Z'
+          }]]),
+          relayCreators: new Map([[pubkey, {
+            pubkey,
+            display_name: 'Mirror Creator',
+            username: 'mirror',
+            avatar_url: 'https://cdn.example.com/creator.png',
+            bio: 'Mirrored creator bio',
+            website: 'https://divine.video/profile/mirror',
+            nip05: 'mirror@divine.video',
+            follower_count: 123,
+            following_count: 45,
+            video_count: 67,
+            event_count: 89,
+            first_activity: '2020-01-01T00:00:00.000Z',
+            last_activity: '2026-04-15T00:00:00.000Z',
+            raw_json: JSON.stringify({ pubkey }),
+            synced_at: '2026-04-16T00:00:00.000Z'
+          }]]),
+          uploaderStats: new Map([[pubkey, {
+            pubkey,
+            total_scanned: 5,
+            flagged_count: 2,
+            banned_count: 0,
+            restricted_count: 1,
+            review_count: 1,
+            last_flagged_at: '2026-03-10T00:00:00.000Z',
+            risk_level: 'elevated'
+          }]]),
+          uploaderEnforcements: new Map([[pubkey, {
+            pubkey,
+            approval_required: 0,
+            relay_banned: 1
+          }]])
+        })
+      });
+
+      const response = await worker.fetch(
+        new Request(`https://moderation.admin.divine.video/admin/api/video/${SHA256}`, {
+          headers: { 'Cf-Access-Authenticated-User-Email': 'mod@divine.video' }
+        }),
+        env
+      );
+
+      expect(response.status).toBe(200);
+      await expect(response.json()).resolves.toMatchObject({
+        video: {
+          sha256: SHA256,
+          title: 'Mirrored title',
+          author: 'Mirror Author',
+          uploaded_by: pubkey,
+          eventId,
+          stableId: 'mirror-stable-id',
+          divineUrl: 'https://divine.video/video/mirror-stable-id',
+          content_url: 'https://media.divine.video/mirrored.mp4',
+          nostrContext: {
+            title: 'Mirrored title',
+            author: 'Mirror Author',
+            content: 'Mirrored content',
+            url: 'https://media.divine.video/mirrored.mp4',
+            publishedAt: '2026-03-06T12:00:00.000Z',
+            eventId,
+            stableId: 'mirror-stable-id'
+          },
+          publisherProfile: {
+            display_name: 'Mirror Creator',
+            name: 'mirror',
+            picture: 'https://cdn.example.com/creator.png'
+          },
+          creatorContext: {
+            name: 'Mirror Creator',
+            avatarUrl: 'https://cdn.example.com/creator.png',
+            social: {
+              followerCount: 123,
+              followingCount: 45,
+              videoCount: 67,
+              totalEvents: 89
+            },
+            enforcement: {
+              relayBanned: true
+            }
           }
         }
       });

@@ -507,6 +507,131 @@ async function fetchLatestWebhookEvent(sha256, env) {
   }
 }
 
+async function fetchStoredRelayVideo(sha256, env) {
+  if (!sha256) {
+    return null;
+  }
+
+  try {
+    return await env.BLOSSOM_DB.prepare(`
+      SELECT sha256, event_id, stable_id, pubkey, title, content, summary, video_url, thumbnail_url,
+             published_at, created_at, author_name, author_avatar, raw_json, synced_at, source_updated_at
+      FROM relay_videos
+      WHERE sha256 = ?
+    `).bind(sha256).first();
+  } catch {
+    return null;
+  }
+}
+
+async function fetchStoredRelayCreator(pubkey, env) {
+  if (!pubkey) {
+    return null;
+  }
+
+  try {
+    return await env.BLOSSOM_DB.prepare(`
+      SELECT pubkey, display_name, username, avatar_url, bio, website, nip05,
+             follower_count, following_count, video_count, event_count,
+             first_activity, last_activity, raw_json, synced_at
+      FROM relay_creators
+      WHERE pubkey = ?
+    `).bind(pubkey).first();
+  } catch {
+    return null;
+  }
+}
+
+function buildStoredRelayPublisherProfile(creatorRow = null, relayVideoRow = null) {
+  if (!creatorRow && !relayVideoRow) {
+    return null;
+  }
+
+  return {
+    display_name: pickFirstPresentValue(creatorRow?.display_name, relayVideoRow?.author_name),
+    name: pickFirstPresentValue(creatorRow?.username),
+    picture: pickFirstPresentValue(creatorRow?.avatar_url, relayVideoRow?.author_avatar),
+    about: pickFirstPresentValue(creatorRow?.bio),
+    website: pickFirstPresentValue(creatorRow?.website),
+    nip05: pickFirstPresentValue(creatorRow?.nip05)
+  };
+}
+
+function buildStoredRelayVideo(relayVideoRow = null, relayCreatorRow = null) {
+  if (!relayVideoRow) {
+    return null;
+  }
+
+  const uploadedBy = pickFirstPresentValue(relayVideoRow.pubkey, relayCreatorRow?.pubkey);
+  const eventId = pickFirstPresentValue(relayVideoRow.event_id);
+  const stableId = pickFirstPresentValue(relayVideoRow.stable_id);
+  const title = pickFirstPresentValue(relayVideoRow.title);
+  const author = pickFirstPresentValue(relayVideoRow.author_name, relayCreatorRow?.display_name, relayCreatorRow?.username);
+  const contentUrl = pickFirstPresentValue(relayVideoRow.video_url);
+  const publishedAt = pickFirstPresentValue(relayVideoRow.published_at);
+  const content = pickFirstPresentValue(relayVideoRow.content, relayVideoRow.summary);
+
+  return {
+    uploaded_by: uploadedBy,
+    title,
+    author,
+    content_url: contentUrl,
+    content_text: content,
+    published_at: publishedAt,
+    stableId,
+    event_id: eventId,
+    eventId,
+    divineUrl: stableId
+      ? `https://divine.video/video/${encodeURIComponent(stableId)}`
+      : (eventId ? `https://divine.video/video/${encodeURIComponent(eventId)}` : null),
+    cdnUrl: contentUrl,
+    thumbnailUrl: pickFirstPresentValue(relayVideoRow.thumbnail_url),
+    publisherProfile: buildStoredRelayPublisherProfile(relayCreatorRow, relayVideoRow),
+    nostrContext: buildAdminNostrContext({
+      pubkey: uploadedBy,
+      eventId,
+      stableId,
+      metadata: {
+        title,
+        author,
+        content,
+        url: contentUrl,
+        publishedAt,
+        createdAt: pickFirstPresentValue(relayVideoRow.created_at),
+        stableId,
+        eventId
+      }
+    })
+  };
+}
+
+function mergeStoredRelayCreatorContext(existingContext = null, relayCreatorRow = null, pubkey = null) {
+  if (!relayCreatorRow || !pubkey) {
+    return existingContext;
+  }
+
+  return {
+    name: pickFirstPresentValue(relayCreatorRow.display_name, relayCreatorRow.username, existingContext?.name),
+    pubkey,
+    profileUrl: existingContext?.profileUrl || `https://divine.video/profile/${pubkey}`,
+    avatarUrl: pickFirstPresentValue(relayCreatorRow.avatar_url, existingContext?.avatarUrl),
+    stats: existingContext?.stats || null,
+    social: {
+      videoCount: relayCreatorRow.video_count ?? existingContext?.social?.videoCount ?? null,
+      totalEvents: relayCreatorRow.event_count ?? existingContext?.social?.totalEvents ?? null,
+      followerCount: relayCreatorRow.follower_count ?? existingContext?.social?.followerCount ?? null,
+      followingCount: relayCreatorRow.following_count ?? existingContext?.social?.followingCount ?? null,
+      firstActivity: relayCreatorRow.first_activity ?? existingContext?.social?.firstActivity ?? null,
+      lastActivity: relayCreatorRow.last_activity ?? existingContext?.social?.lastActivity ?? null
+    },
+    enforcement: existingContext?.enforcement || {
+      pubkey,
+      approvalRequired: false,
+      relayBanned: false
+    }
+  };
+}
+
 function buildStoredAdminFallbackRow(baseRow = {}, storedSnapshot = null, videoMetadataRow = null, webhookEventRow = null) {
   return {
     title: pickFirstPresentValue(baseRow?.title, storedSnapshot?.title),
@@ -1357,9 +1482,10 @@ async function getAdminLookupVideo(identifier, env, options = {}) {
   const hash = isValidSha256(identifier) ? identifier.toLowerCase() : null;
   const cdnUrl = `https://${env.CDN_DOMAIN || 'media.divine.video'}/${hash}`;
   if (hash) {
-    const [videoMetadataRow, webhookEventRow] = await Promise.all([
+    const [videoMetadataRow, webhookEventRow, relayVideoRow] = await Promise.all([
       fetchStoredVideoMetadata(hash, env),
-      fetchLatestWebhookEvent(hash, env)
+      fetchLatestWebhookEvent(hash, env),
+      fetchStoredRelayVideo(hash, env)
     ]);
     const moderatedRow = await env.BLOSSOM_DB.prepare(`
       SELECT sha256, action, provider, scores, categories, raw_response, moderated_at, reviewed_by, reviewed_at, review_notes, uploaded_by,
@@ -1374,12 +1500,19 @@ async function getAdminLookupVideo(identifier, env, options = {}) {
     if (moderatedRow || kvModeration) {
       const moderatedAt = kvModeration?.moderated_at || moderatedRow?.moderated_at || null;
       const storedSnapshot = parseStoredAdminSnapshot(moderatedRow?.raw_response);
-      const storedVideo = buildStoredModeratedVideo(
-        moderatedRow,
-        storedSnapshot,
-        videoMetadataRow,
-        webhookEventRow,
-        kvModeration?.cdnUrl || cdnUrl
+      const relayCreatorRow = await fetchStoredRelayCreator(
+        pickFirstPresentValue(relayVideoRow?.pubkey, moderatedRow?.uploaded_by, storedSnapshot?.uploadedBy, videoMetadataRow?.uploaded_by),
+        env
+      );
+      const storedVideo = mergeLookupMetadata(
+        buildStoredModeratedVideo(
+          moderatedRow,
+          storedSnapshot,
+          videoMetadataRow,
+          webhookEventRow,
+          kvModeration?.cdnUrl || cdnUrl
+        ),
+        buildStoredRelayVideo(relayVideoRow, relayCreatorRow)
       );
       const video = await enrichAdminLookupVideo({
         sha256: hash,
@@ -1399,7 +1532,18 @@ async function getAdminLookupVideo(identifier, env, options = {}) {
         detailedCategories: parseMaybeJson(kvModeration?.detailedCategories, null),
         categoryVerifications: parseMaybeJson(kvModeration?.categoryVerifications, {}) || {},
         ...storedVideo
-      }, env, identifier);
+      }, env, identifier, {
+        allowRelayLookup: !relayVideoRow,
+        remoteCreator: !relayCreatorRow
+      });
+
+      if (relayCreatorRow && video.uploaded_by) {
+        video.publisherProfile = mergePresentFields(
+          buildStoredRelayPublisherProfile(relayCreatorRow, relayVideoRow),
+          video.publisherProfile || {}
+        );
+        video.creatorContext = mergeStoredRelayCreatorContext(video.creatorContext, relayCreatorRow, video.uploaded_by);
+      }
 
       if (moderatedRow) {
         await persistResolvedAdminContext(hash, video, env, moderatedRow);
@@ -1423,16 +1567,30 @@ async function getAdminLookupVideo(identifier, env, options = {}) {
       let eventId = null;
       let divineUrl = null;
       let uploaderPubkey = null;
-      try {
-        const video = await fetchFunnelcakeLookupVideo(hash, env);
-        if (video) {
-          eventId = video.eventId || null;
-          divineUrl = video.divineUrl || null;
-          uploaderPubkey = video.uploaded_by || video.uploadedBy || null;
-          nostrContext = video.nostrContext || null;
+      let stableId = null;
+      if (relayVideoRow) {
+        const relayCreatorRow = await fetchStoredRelayCreator(
+          pickFirstPresentValue(relayVideoRow?.pubkey, videoMetadataRow?.uploaded_by),
+          env
+        );
+        const mirroredVideo = buildStoredRelayVideo(relayVideoRow, relayCreatorRow);
+        nostrContext = mirroredVideo?.nostrContext || null;
+        eventId = mirroredVideo?.eventId || null;
+        divineUrl = mirroredVideo?.divineUrl || null;
+        uploaderPubkey = mirroredVideo?.uploaded_by || null;
+        stableId = mirroredVideo?.stableId || null;
+      } else {
+        try {
+          const video = await fetchFunnelcakeLookupVideo(hash, env);
+          if (video) {
+            eventId = video.eventId || null;
+            divineUrl = video.divineUrl || null;
+            uploaderPubkey = video.uploaded_by || video.uploadedBy || null;
+            nostrContext = video.nostrContext || null;
+          }
+        } catch (error) {
+          console.error(`[ADMIN] Failed to fetch Nostr context for ${hash}:`, error.message);
         }
-      } catch (error) {
-        console.error(`[ADMIN] Failed to fetch Nostr context for ${hash}:`, error.message);
       }
 
       return enrichAdminLookupVideo({
@@ -1446,9 +1604,12 @@ async function getAdminLookupVideo(identifier, env, options = {}) {
         cdnUrl,
         nostrContext,
         eventId,
+        stableId,
         divineUrl,
         uploaded_by: uploaderPubkey
-      }, env, identifier);
+      }, env, identifier, {
+        allowRelayLookup: !relayVideoRow
+      });
     }
   }
 
