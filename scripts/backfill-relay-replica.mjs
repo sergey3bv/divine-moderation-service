@@ -10,6 +10,8 @@ export const DEFAULT_CHECKPOINT_FILE = 'tmp/backfill-relay-replica.checkpoint.js
 export const DEFAULT_DIVINE_API_BASE_URL = 'https://api.divine.video';
 export const DEFAULT_D1_DATABASE_NAME = 'blossom-webhook-events';
 export const DEFAULT_PERSIST_CHUNK_SIZE = 10;
+export const DEFAULT_PERSIST_MAX_SQL_LENGTH = 60000;
+export const DEFAULT_WRANGLER_FILE_SQL_THRESHOLD = Number.MAX_SAFE_INTEGER;
 
 function isPresentValue(value) {
   return value !== null && value !== undefined && value !== '';
@@ -84,11 +86,11 @@ function compareCursor(a, b) {
   return 0;
 }
 
-function wrapTransaction(statements = []) {
+function joinSqlStatements(statements = []) {
   const terminatedStatements = statements
     .filter(Boolean)
     .map((statement) => `${statement.replace(/;\s*$/, '')};`);
-  return ['BEGIN TRANSACTION;', ...terminatedStatements, 'COMMIT;'].join('\n');
+  return terminatedStatements.join('\n');
 }
 
 function buildRelayVideoUpsertSql(records = []) {
@@ -195,7 +197,8 @@ function buildModerationRefreshSql(records = []) {
 }
 
 export function buildPersistReplicaSqlChunks({ videos = [], creators = [], moderationUpdates = [] } = {}, {
-  chunkSize = DEFAULT_PERSIST_CHUNK_SIZE
+  chunkSize = DEFAULT_PERSIST_CHUNK_SIZE,
+  maxSqlLength = DEFAULT_PERSIST_MAX_SQL_LENGTH
 } = {}) {
   const creatorByPubkey = new Map(
     creators
@@ -207,9 +210,8 @@ export function buildPersistReplicaSqlChunks({ videos = [], creators = [], moder
       .filter((record) => isPresentValue(record?.sha256))
       .map((record) => [record.sha256, record])
   );
-  const chunks = [];
 
-  for (const videoChunk of chunkArray(videos, chunkSize)) {
+  function buildChunkSql(videoChunk) {
     const chunkCreators = [];
     const seenCreators = new Set();
     const chunkModerationUpdates = [];
@@ -227,14 +229,60 @@ export function buildPersistReplicaSqlChunks({ videos = [], creators = [], moder
       }
     }
 
-    chunks.push(wrapTransaction([
+    return joinSqlStatements([
       buildRelayVideoUpsertSql(videoChunk),
       buildRelayCreatorUpsertSql(chunkCreators),
       buildModerationRefreshSql(chunkModerationUpdates)
-    ]));
+    ]);
+  }
+
+  const chunks = [];
+  let currentChunk = [];
+
+  for (const videoRecord of videos) {
+    currentChunk.push(videoRecord);
+    const candidateSql = buildChunkSql(currentChunk);
+    if (
+      currentChunk.length > 1
+      && (currentChunk.length > chunkSize || candidateSql.length > maxSqlLength)
+    ) {
+      const overflowRecord = currentChunk.pop();
+      chunks.push(buildChunkSql(currentChunk));
+      currentChunk = [overflowRecord];
+    }
+  }
+
+  if (currentChunk.length) {
+    chunks.push(buildChunkSql(currentChunk));
   }
 
   return chunks;
+}
+
+export function buildWranglerExecuteArgs({
+  databaseName,
+  remote = true,
+  wranglerBin = 'npx',
+  sql,
+  tempFile = null,
+  fileSqlThreshold = DEFAULT_WRANGLER_FILE_SQL_THRESHOLD
+} = {}) {
+  const args = wranglerBin === 'npx'
+    ? ['wrangler', 'd1', 'execute', databaseName]
+    : ['d1', 'execute', databaseName];
+  if (remote) {
+    args.push('--remote');
+  }
+  args.push('--json');
+  if (tempFile && typeof sql === 'string' && sql.length >= fileSqlThreshold) {
+    args.push('--file', tempFile);
+  } else {
+    args.push('--command', sql);
+  }
+  return {
+    command: wranglerBin,
+    args
+  };
 }
 
 export function buildSparseModerationRowsQuery({ cursor = null, limit = DEFAULT_BATCH_SIZE } = {}) {
@@ -549,20 +597,22 @@ function parseWranglerJson(stdout) {
 async function createWranglerD1Client({
   databaseName = DEFAULT_D1_DATABASE_NAME,
   remote = true,
-  wranglerBin = 'npx'
+  wranglerBin = 'npx',
+  fileSqlThreshold = DEFAULT_WRANGLER_FILE_SQL_THRESHOLD
 } = {}) {
   const { execFile } = await import('node:child_process');
 
   async function executeSql(sql) {
-    const args = wranglerBin === 'npx'
-      ? ['wrangler', 'd1', 'execute', databaseName, '--json', '--command', sql]
-      : ['d1', 'execute', databaseName, '--json', '--command', sql];
-    if (remote) {
-      args.splice(wranglerBin === 'npx' ? 4 : 3, 0, '--remote');
-    }
+    const invocation = buildWranglerExecuteArgs({
+      databaseName,
+      remote,
+      wranglerBin,
+      sql,
+      fileSqlThreshold
+    });
 
     const result = await new Promise((resolve, reject) => {
-      execFile(wranglerBin, args, { maxBuffer: 20 * 1024 * 1024 }, (error, stdout, stderr) => {
+      execFile(invocation.command, invocation.args, { maxBuffer: 20 * 1024 * 1024 }, (error, stdout, stderr) => {
         if (error) {
           reject(new Error(stderr || error.message));
           return;

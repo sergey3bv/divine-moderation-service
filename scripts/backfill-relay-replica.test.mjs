@@ -3,6 +3,7 @@
 
 import { describe, expect, it, vi } from 'vitest';
 import {
+  buildWranglerExecuteArgs,
   buildPersistReplicaSqlChunks,
   buildSparseModerationRowsQuery,
   loadCheckpoint,
@@ -185,7 +186,7 @@ describe('backfill-relay-replica', () => {
     });
   });
 
-  it('builds chunked transactional SQL for replica persistence', () => {
+  it('builds chunked batched SQL for replica persistence', () => {
     const video = {
       sha256: 'a'.repeat(64),
       event_id: 'e'.repeat(64),
@@ -248,7 +249,6 @@ describe('backfill-relay-replica', () => {
     }, { chunkSize: 1 });
 
     expect(chunks).toHaveLength(2);
-    expect(chunks[0]).toContain('BEGIN TRANSACTION;');
     expect(chunks[0]).toContain('INSERT INTO relay_videos');
     expect(chunks[0]).toContain('ON CONFLICT(sha256) DO UPDATE SET');
     expect(chunks[0]).toContain('INSERT INTO relay_creators');
@@ -258,7 +258,100 @@ describe('backfill-relay-replica', () => {
     expect(chunks[0]).toContain('CASE sha256');
     expect(chunks[1]).toContain('INSERT INTO relay_videos');
     expect(chunks[1]).toContain("WHERE sha256 IN ('bbbbbbbbbbbbbbbb");
-    expect(chunks.every((chunk) => chunk.includes('COMMIT;'))).toBe(true);
+    expect(chunks.every((chunk) => !chunk.includes('BEGIN TRANSACTION'))).toBe(true);
+  });
+
+  it('uses wrangler command execution for large SQL payloads by default', () => {
+    const longSql = 'SELECT 1;\n'.repeat(20000);
+    const invocation = buildWranglerExecuteArgs({
+      databaseName: 'blossom-webhook-events',
+      remote: true,
+      wranglerBin: 'npx',
+      sql: longSql,
+      tempFile: '/tmp/backfill.sql'
+    });
+
+    expect(invocation).toEqual({
+      command: 'npx',
+      args: [
+        'wrangler',
+        'd1',
+        'execute',
+        'blossom-webhook-events',
+        '--remote',
+        '--json',
+        '--command',
+        longSql
+      ]
+    });
+  });
+
+  it('splits persistence chunks when rendered SQL exceeds the max size', () => {
+    const hugeContent = 'x'.repeat(5000);
+    const baseVideo = {
+      event_id: 'e'.repeat(64),
+      pubkey: 'f'.repeat(64),
+      title: 'Video',
+      content: hugeContent,
+      summary: hugeContent,
+      video_url: 'https://media.divine.video/a.mp4',
+      thumbnail_url: 'https://media.divine.video/a.jpg',
+      published_at: 1389756506,
+      created_at: 1389756400,
+      author_name: 'Author',
+      author_avatar: 'https://media.divine.video/avatar-a.jpg',
+      raw_json: JSON.stringify({ hugeContent }),
+      synced_at: '2026-04-16T00:00:00.000Z',
+      source_updated_at: null
+    };
+
+    const chunks = buildPersistReplicaSqlChunks({
+      videos: [
+        { ...baseVideo, sha256: 'a'.repeat(64), stable_id: 'stable-a' },
+        { ...baseVideo, sha256: 'b'.repeat(64), stable_id: 'stable-b' }
+      ],
+      creators: [
+        {
+          pubkey: 'f'.repeat(64),
+          display_name: 'Creator A',
+          username: 'creator-a',
+          avatar_url: 'https://media.divine.video/avatar-a.jpg',
+          bio: 'Bio A',
+          website: 'https://divine.video/a',
+          nip05: 'creator-a@divine.video',
+          follower_count: 10,
+          following_count: 5,
+          video_count: 3,
+          event_count: 12,
+          first_activity: '2020-01-01T00:00:00.000Z',
+          last_activity: '2026-04-15T00:00:00.000Z',
+          raw_json: '{"creator":"a"}',
+          synced_at: '2026-04-16T00:00:00.000Z'
+        }
+      ],
+      moderationUpdates: [
+        {
+          sha256: 'a'.repeat(64),
+          uploaded_by: 'f'.repeat(64),
+          title: 'Video A',
+          author: 'Creator A',
+          event_id: 'e'.repeat(64),
+          content_url: 'https://media.divine.video/a.mp4',
+          published_at: 1389756506
+        },
+        {
+          sha256: 'b'.repeat(64),
+          uploaded_by: 'f'.repeat(64),
+          title: 'Video B',
+          author: 'Creator A',
+          event_id: 'd'.repeat(64),
+          content_url: 'https://media.divine.video/b.mp4',
+          published_at: 1389756507
+        }
+      ]
+    }, { chunkSize: 10, maxSqlLength: 12000 });
+
+    expect(chunks).toHaveLength(2);
   });
 
   it('resumes from checkpoint cursor without restarting from the beginning', async () => {
