@@ -3,6 +3,7 @@
 
 import { describe, expect, it, vi } from 'vitest';
 import {
+  buildPersistReplicaSqlChunks,
   buildSparseModerationRowsQuery,
   loadCheckpoint,
   processReplicaBatch,
@@ -126,6 +127,136 @@ describe('backfill-relay-replica', () => {
       moderated_at: '2026-04-16T00:00:00.000Z',
       sha256: 'c'.repeat(64)
     });
+  });
+
+  it('batches repaired rows into one persistence call per batch', async () => {
+    const rows = [
+      { sha256: 'a'.repeat(64), moderated_at: '2026-04-16T02:00:00.000Z' },
+      { sha256: 'b'.repeat(64), moderated_at: '2026-04-16T01:00:00.000Z' }
+    ];
+    const persistReplicaBatch = vi.fn(async () => {});
+
+    const result = await processReplicaBatch(rows, {
+      fetchVideoBySha: vi.fn(async (sha256) => ({
+        event: {
+          id: sha256.replace(/a|b/g, 'e').slice(0, 64),
+          pubkey: `${sha256[0]}`.repeat(64),
+          created_at: 1700000000,
+          tags: [
+            ['d', `stable-${sha256[0]}`],
+            ['title', `Video ${sha256[0]}`],
+            ['published_at', '1389756506'],
+            ['imeta', `url https://media.divine.video/${sha256}.mp4`, `x ${sha256}`]
+          ],
+          content: `Body ${sha256[0]}`
+        },
+        stats: { author_name: `Author ${sha256[0]}` }
+      })),
+      fetchBulkProfiles: vi.fn(async () => ({})),
+      fetchUser: vi.fn(async () => null),
+      fetchUserSocial: vi.fn(async () => null),
+      persistReplicaBatch,
+      upsertRelayVideo: vi.fn(async () => {}),
+      upsertRelayCreator: vi.fn(async () => {}),
+      refreshModerationResult: vi.fn(async () => {}),
+      log: () => {}
+    });
+
+    expect(result.stats).toMatchObject({
+      scanned: 2,
+      repaired: 2,
+      unresolved: 0,
+      failed: 0
+    });
+    expect(persistReplicaBatch).toHaveBeenCalledTimes(1);
+    expect(persistReplicaBatch).toHaveBeenCalledWith({
+      videos: expect.arrayContaining([
+        expect.objectContaining({ sha256: 'a'.repeat(64) }),
+        expect.objectContaining({ sha256: 'b'.repeat(64) })
+      ]),
+      creators: expect.arrayContaining([
+        expect.objectContaining({ pubkey: 'a'.repeat(64) }),
+        expect.objectContaining({ pubkey: 'b'.repeat(64) })
+      ]),
+      moderationUpdates: expect.arrayContaining([
+        expect.objectContaining({ sha256: 'a'.repeat(64) }),
+        expect.objectContaining({ sha256: 'b'.repeat(64) })
+      ])
+    });
+  });
+
+  it('builds chunked transactional SQL for replica persistence', () => {
+    const video = {
+      sha256: 'a'.repeat(64),
+      event_id: 'e'.repeat(64),
+      stable_id: 'stable-a',
+      pubkey: 'f'.repeat(64),
+      title: 'Video A',
+      content: 'Body A',
+      summary: 'Summary A',
+      video_url: 'https://media.divine.video/a.mp4',
+      thumbnail_url: 'https://media.divine.video/a.jpg',
+      published_at: 1389756506,
+      created_at: 1389756400,
+      author_name: 'Author A',
+      author_avatar: 'https://media.divine.video/avatar-a.jpg',
+      raw_json: '{"video":"a"}',
+      synced_at: '2026-04-16T00:00:00.000Z',
+      source_updated_at: null
+    };
+    const creator = {
+      pubkey: 'f'.repeat(64),
+      display_name: 'Creator A',
+      username: 'creator-a',
+      avatar_url: 'https://media.divine.video/avatar-a.jpg',
+      bio: 'Bio A',
+      website: 'https://divine.video/a',
+      nip05: 'creator-a@divine.video',
+      follower_count: 10,
+      following_count: 5,
+      video_count: 3,
+      event_count: 12,
+      first_activity: '2020-01-01T00:00:00.000Z',
+      last_activity: '2026-04-15T00:00:00.000Z',
+      raw_json: '{"creator":"a"}',
+      synced_at: '2026-04-16T00:00:00.000Z'
+    };
+
+    const chunks = buildPersistReplicaSqlChunks({
+      videos: [video, { ...video, sha256: 'b'.repeat(64), stable_id: 'stable-b' }],
+      creators: [creator],
+      moderationUpdates: [
+        {
+          sha256: 'a'.repeat(64),
+          uploaded_by: 'f'.repeat(64),
+          title: 'Video A',
+          author: 'Creator A',
+          event_id: 'e'.repeat(64),
+          content_url: 'https://media.divine.video/a.mp4',
+          published_at: 1389756506
+        },
+        {
+          sha256: 'b'.repeat(64),
+          uploaded_by: 'f'.repeat(64),
+          title: 'Video B',
+          author: 'Creator A',
+          event_id: 'd'.repeat(64),
+          content_url: 'https://media.divine.video/b.mp4',
+          published_at: 1389756507
+        }
+      ]
+    }, { chunkSize: 1 });
+
+    expect(chunks).toHaveLength(2);
+    expect(chunks[0]).toContain('BEGIN TRANSACTION;');
+    expect(chunks[0]).toContain('INSERT INTO relay_videos');
+    expect(chunks[0]).toContain('ON CONFLICT(sha256) DO UPDATE SET');
+    expect(chunks[0]).toContain('INSERT INTO relay_creators');
+    expect(chunks[0]).toContain('UPDATE moderation_results');
+    expect(chunks[0]).toContain('CASE sha256');
+    expect(chunks[1]).toContain('INSERT INTO relay_videos');
+    expect(chunks[1]).toContain("WHERE sha256 IN ('bbbbbbbbbbbbbbbb");
+    expect(chunks.every((chunk) => chunk.includes('COMMIT;'))).toBe(true);
   });
 
   it('resumes from checkpoint cursor without restarting from the beginning', async () => {

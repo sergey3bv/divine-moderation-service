@@ -9,6 +9,7 @@ export const DEFAULT_CONCURRENCY = 8;
 export const DEFAULT_CHECKPOINT_FILE = 'tmp/backfill-relay-replica.checkpoint.json';
 export const DEFAULT_DIVINE_API_BASE_URL = 'https://api.divine.video';
 export const DEFAULT_D1_DATABASE_NAME = 'blossom-webhook-events';
+export const DEFAULT_PERSIST_CHUNK_SIZE = 10;
 
 function isPresentValue(value) {
   return value !== null && value !== undefined && value !== '';
@@ -44,6 +45,15 @@ function unique(values = []) {
   return [...new Set(values.filter((value) => isPresentValue(value)))];
 }
 
+function chunkArray(values = [], chunkSize = DEFAULT_PERSIST_CHUNK_SIZE) {
+  const safeChunkSize = Math.max(1, Math.floor(chunkSize));
+  const chunks = [];
+  for (let index = 0; index < values.length; index += safeChunkSize) {
+    chunks.push(values.slice(index, index + safeChunkSize));
+  }
+  return chunks;
+}
+
 function extractTagValue(tags = [], tagName) {
   for (const tag of tags) {
     if (tag?.[0] === tagName && isPresentValue(tag?.[1])) {
@@ -72,6 +82,156 @@ function compareCursor(a, b) {
   if (a.sha256 < b.sha256) return -1;
   if (a.sha256 > b.sha256) return 1;
   return 0;
+}
+
+function wrapTransaction(statements = []) {
+  return ['BEGIN TRANSACTION;', ...statements.filter(Boolean), 'COMMIT;'].join('\n');
+}
+
+function buildRelayVideoUpsertSql(records = []) {
+  if (!records.length) {
+    return '';
+  }
+  const values = records.map((record) => `(
+      ${sqlLiteral(record.sha256)}, ${sqlLiteral(record.event_id)}, ${sqlLiteral(record.stable_id)}, ${sqlLiteral(record.pubkey)},
+      ${sqlLiteral(record.title)}, ${sqlLiteral(record.content)}, ${sqlLiteral(record.summary)}, ${sqlLiteral(record.video_url)},
+      ${sqlLiteral(record.thumbnail_url)}, ${sqlLiteral(record.published_at)}, ${sqlLiteral(record.created_at)},
+      ${sqlLiteral(record.author_name)}, ${sqlLiteral(record.author_avatar)}, ${sqlLiteral(record.raw_json)},
+      ${sqlLiteral(record.synced_at)}, ${sqlLiteral(record.source_updated_at)}
+    )`).join(',\n');
+
+  return `
+    INSERT INTO relay_videos (
+      sha256, event_id, stable_id, pubkey, title, content, summary, video_url, thumbnail_url,
+      published_at, created_at, author_name, author_avatar, raw_json, synced_at, source_updated_at
+    ) VALUES
+    ${values}
+    ON CONFLICT(sha256) DO UPDATE SET
+      event_id = excluded.event_id,
+      stable_id = excluded.stable_id,
+      pubkey = excluded.pubkey,
+      title = excluded.title,
+      content = excluded.content,
+      summary = excluded.summary,
+      video_url = excluded.video_url,
+      thumbnail_url = excluded.thumbnail_url,
+      published_at = excluded.published_at,
+      created_at = excluded.created_at,
+      author_name = excluded.author_name,
+      author_avatar = excluded.author_avatar,
+      raw_json = excluded.raw_json,
+      synced_at = excluded.synced_at,
+      source_updated_at = excluded.source_updated_at
+  `.trim();
+}
+
+function buildRelayCreatorUpsertSql(records = []) {
+  if (!records.length) {
+    return '';
+  }
+  const values = records.map((record) => `(
+      ${sqlLiteral(record.pubkey)}, ${sqlLiteral(record.display_name)}, ${sqlLiteral(record.username)},
+      ${sqlLiteral(record.avatar_url)}, ${sqlLiteral(record.bio)}, ${sqlLiteral(record.website)},
+      ${sqlLiteral(record.nip05)}, ${sqlLiteral(record.follower_count)}, ${sqlLiteral(record.following_count)},
+      ${sqlLiteral(record.video_count)}, ${sqlLiteral(record.event_count)}, ${sqlLiteral(record.first_activity)},
+      ${sqlLiteral(record.last_activity)}, ${sqlLiteral(record.raw_json)}, ${sqlLiteral(record.synced_at)}
+    )`).join(',\n');
+
+  return `
+    INSERT INTO relay_creators (
+      pubkey, display_name, username, avatar_url, bio, website, nip05,
+      follower_count, following_count, video_count, event_count,
+      first_activity, last_activity, raw_json, synced_at
+    ) VALUES
+    ${values}
+    ON CONFLICT(pubkey) DO UPDATE SET
+      display_name = excluded.display_name,
+      username = excluded.username,
+      avatar_url = excluded.avatar_url,
+      bio = excluded.bio,
+      website = excluded.website,
+      nip05 = excluded.nip05,
+      follower_count = excluded.follower_count,
+      following_count = excluded.following_count,
+      video_count = excluded.video_count,
+      event_count = excluded.event_count,
+      first_activity = excluded.first_activity,
+      last_activity = excluded.last_activity,
+      raw_json = excluded.raw_json,
+      synced_at = excluded.synced_at
+  `.trim();
+}
+
+function buildModerationRefreshSql(records = []) {
+  if (!records.length) {
+    return '';
+  }
+  const shas = records.map((record) => sqlLiteral(record.sha256)).join(', ');
+  const fields = [
+    'uploaded_by',
+    'title',
+    'author',
+    'event_id',
+    'content_url',
+    'published_at'
+  ];
+
+  const assignments = fields.map((field) => {
+    const clauses = records.map((record) => `WHEN ${sqlLiteral(record.sha256)} THEN ${sqlLiteral(record[field] ?? null)}`).join('\n        ');
+    return `${field} = CASE sha256
+        ${clauses}
+        ELSE ${field}
+      END`;
+  }).join(',\n      ');
+
+  return `
+    UPDATE moderation_results
+    SET ${assignments}
+    WHERE sha256 IN (${shas})
+  `.trim();
+}
+
+export function buildPersistReplicaSqlChunks({ videos = [], creators = [], moderationUpdates = [] } = {}, {
+  chunkSize = DEFAULT_PERSIST_CHUNK_SIZE
+} = {}) {
+  const creatorByPubkey = new Map(
+    creators
+      .filter((record) => isPresentValue(record?.pubkey))
+      .map((record) => [record.pubkey, record])
+  );
+  const moderationBySha = new Map(
+    moderationUpdates
+      .filter((record) => isPresentValue(record?.sha256))
+      .map((record) => [record.sha256, record])
+  );
+  const chunks = [];
+
+  for (const videoChunk of chunkArray(videos, chunkSize)) {
+    const chunkCreators = [];
+    const seenCreators = new Set();
+    const chunkModerationUpdates = [];
+
+    for (const videoRecord of videoChunk) {
+      const creatorRecord = creatorByPubkey.get(videoRecord.pubkey);
+      if (creatorRecord && !seenCreators.has(creatorRecord.pubkey)) {
+        seenCreators.add(creatorRecord.pubkey);
+        chunkCreators.push(creatorRecord);
+      }
+
+      const moderationRecord = moderationBySha.get(videoRecord.sha256);
+      if (moderationRecord) {
+        chunkModerationUpdates.push(moderationRecord);
+      }
+    }
+
+    chunks.push(wrapTransaction([
+      buildRelayVideoUpsertSql(videoChunk),
+      buildRelayCreatorUpsertSql(chunkCreators),
+      buildModerationRefreshSql(chunkModerationUpdates)
+    ]));
+  }
+
+  return chunks;
 }
 
 export function buildSparseModerationRowsQuery({ cursor = null, limit = DEFAULT_BATCH_SIZE } = {}) {
@@ -229,6 +389,7 @@ export async function processReplicaBatch(rows, deps, options = {}) {
     fetchBulkProfiles = async () => ({}),
     fetchUser = async () => null,
     fetchUserSocial = async () => null,
+    persistReplicaBatch = null,
     upsertRelayVideo,
     upsertRelayCreator,
     refreshModerationResult,
@@ -255,6 +416,7 @@ export async function processReplicaBatch(rows, deps, options = {}) {
   const bulkProfiles = await fetchBulkProfiles(unique(
     fetched.map(({ payload }) => payload?.event?.pubkey || null)
   ));
+  const repairedRows = [];
 
   for (const item of fetched) {
     const { row, payload, error } = item;
@@ -277,13 +439,35 @@ export async function processReplicaBatch(rows, deps, options = {}) {
         ])
       : [null, null];
     const creatorRecord = buildRelayCreatorMirrorRecord(payload.event.pubkey, profile, userData, socialData, syncedAt);
+    const moderationRecord = {
+      sha256: row.sha256,
+      ...buildModerationRefreshRecord(videoRecord, creatorRecord)
+    };
 
-    await upsertRelayVideo(videoRecord);
-    if (creatorRecord) {
-      await upsertRelayCreator(creatorRecord);
-    }
-    await refreshModerationResult(row.sha256, buildModerationRefreshRecord(videoRecord, creatorRecord));
+    repairedRows.push({
+      videoRecord,
+      creatorRecord,
+      moderationRecord
+    });
     stats.repaired += 1;
+  }
+
+  if (repairedRows.length) {
+    if (typeof persistReplicaBatch === 'function') {
+      await persistReplicaBatch({
+        videos: repairedRows.map((entry) => entry.videoRecord),
+        creators: repairedRows.map((entry) => entry.creatorRecord).filter(Boolean),
+        moderationUpdates: repairedRows.map((entry) => entry.moderationRecord)
+      });
+    } else {
+      for (const entry of repairedRows) {
+        await upsertRelayVideo(entry.videoRecord);
+        if (entry.creatorRecord) {
+          await upsertRelayCreator(entry.creatorRecord);
+        }
+        await refreshModerationResult(entry.moderationRecord.sha256, entry.moderationRecord);
+      }
+    }
   }
 
   const lastRow = rows.at(-1) || null;
@@ -392,6 +576,12 @@ async function createWranglerD1Client({
       const { sql } = buildSparseModerationRowsQuery({ cursor, limit });
       const result = await executeSql(sql);
       return result.results || [];
+    },
+    async persistReplicaBatch(records) {
+      const chunks = buildPersistReplicaSqlChunks(records);
+      for (const sql of chunks) {
+        await executeSql(sql);
+      }
     },
     async upsertRelayVideo(record) {
       const sql = `
