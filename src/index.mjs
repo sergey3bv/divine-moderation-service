@@ -3044,24 +3044,35 @@ async function runMigration() {
 
     // Preview drift between D1 AGE_RESTRICTED rows and live Blossom state.
     // Read-only: never calls notifyBlossom, never writes D1 or KV.
-    if (url.pathname === '/admin/api/reconcile/age-restricted/preview' && request.method === 'POST') {
+    if (
+      url.pathname === '/admin/api/reconcile/age-restricted/preview'
+      && (request.method === 'POST' || request.method === 'GET')
+    ) {
       const authError = await requireAuth(request, env);
       if (authError) return authError;
 
       let body = {};
-      try {
-        body = await request.json();
-      } catch (_) {
-        body = {};
+      if (request.method === 'POST') {
+        try {
+          body = await request.json();
+        } catch (_) {
+          body = {};
+        }
+      } else {
+        const queryLimit = url.searchParams.get('limit');
+        const queryCursor = url.searchParams.get('cursor');
+        if (queryLimit !== null) body.limit = queryLimit;
+        if (queryCursor !== null) body.cursor = queryCursor;
       }
 
       const rawLimit = body.limit;
       let limit = 50;
       if (rawLimit !== undefined && rawLimit !== null) {
-        if (typeof rawLimit !== 'number' || !Number.isInteger(rawLimit) || rawLimit <= 0) {
+        const normalizedLimit = typeof rawLimit === 'string' ? Number(rawLimit) : rawLimit;
+        if (typeof normalizedLimit !== 'number' || !Number.isInteger(normalizedLimit) || normalizedLimit <= 0) {
           return jsonResponse(400, { error: 'limit must be a positive integer' });
         }
-        limit = Math.min(rawLimit, 100);
+        limit = Math.min(normalizedLimit, 100);
       }
 
       const rawCursor = body.cursor;

@@ -3549,6 +3549,49 @@ describe('admin age restricted reconcile preview endpoint', () => {
     }
   });
 
+  it('supports GET preview with browser-style query params', async () => {
+    const shas = Array.from({ length: 3 }, (_, i) => sha(i + 1));
+    const env = createReconcileEnv({
+      ageRestrictedShas: shas,
+      blossomStatuses: {
+        [shas[0]]: { status: 'age_restricted' },
+        [shas[1]]: { status: 'restricted' },
+        [shas[2]]: { status: 'deleted' }
+      }
+    });
+
+    const restore = installBlossomFetchInterceptor(env);
+    try {
+      const response = await worker.fetch(
+        new Request(`https://moderation.admin.divine.video/admin/api/reconcile/age-restricted/preview?limit=2&cursor=${shas[0]}`, {
+          method: 'GET',
+          headers: {
+            'Cf-Access-Authenticated-User-Email': 'mod@divine.video'
+          }
+        }),
+        env
+      );
+
+      expect(response.status).toBe(200);
+      const body = await response.json();
+      expect(body.success).toBe(true);
+      expect(body.limit).toBe(2);
+      expect(body.nextCursor).toBeNull();
+      expect(body.counts).toEqual({
+        aligned: 0,
+        repairable_mismatch: 1,
+        skip_deleted: 1,
+        skip_missing: 0,
+        unexpected_state: 0,
+        read_failed: 0
+      });
+      expect(body.repairableShas).toEqual([shas[1]]);
+      expect(body.samples.skip_deleted[0].sha256).toBe(shas[2]);
+    } finally {
+      restore();
+    }
+  });
+
   it('caps limit at 100 when caller requests a higher value', async () => {
     // Build 105 AGE_RESTRICTED rows; with max limit=100 we should get 100 classified
     // rows plus a nextCursor equal to the 100th sha.
