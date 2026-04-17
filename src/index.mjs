@@ -28,6 +28,13 @@ import { parseVttText } from './moderation/text-classifier.mjs';
 import { notifyAtprotoLabeler } from './atproto/label-webhook.mjs';
 import { buildDownstreamPublishContext } from './moderation/downstream-publishing.mjs';
 import { runClassicVineRollback } from './moderation/classic-vine-rollback.mjs';
+import {
+  listAgeRestrictedCandidates,
+  fetchBlossomBlobDetail,
+  classifyAgeRestrictedCandidate,
+  buildPreviewResponse,
+  applyAgeRestrictedRepairs
+} from './moderation/age-restricted-reconcile.mjs';
 /**
  * NIP-32 label mapping for content categories
  * Maps internal category names to NIP-32/NIP-56 compatible labels
@@ -3032,6 +3039,137 @@ async function runMigration() {
       } catch (error) {
         console.error('[CLASSIC-VINES] Rollback error:', error);
         return jsonResponse(error.status || 500, { error: error.message });
+      }
+    }
+
+    // Preview drift between D1 AGE_RESTRICTED rows and live Blossom state.
+    // Read-only: never calls notifyBlossom, never writes D1 or KV.
+    if (url.pathname === '/admin/api/reconcile/age-restricted/preview' && request.method === 'POST') {
+      const authError = await requireAuth(request, env);
+      if (authError) return authError;
+
+      let body = {};
+      try {
+        body = await request.json();
+      } catch (_) {
+        body = {};
+      }
+
+      const rawLimit = body.limit;
+      let limit = 50;
+      if (rawLimit !== undefined && rawLimit !== null) {
+        if (typeof rawLimit !== 'number' || !Number.isInteger(rawLimit) || rawLimit <= 0) {
+          return jsonResponse(400, { error: 'limit must be a positive integer' });
+        }
+        limit = Math.min(rawLimit, 100);
+      }
+
+      const rawCursor = body.cursor;
+      let cursorSha = null;
+      if (rawCursor !== undefined && rawCursor !== null) {
+        if (typeof rawCursor !== 'string') {
+          return jsonResponse(400, { error: 'cursor must be a string' });
+        }
+        cursorSha = rawCursor;
+      }
+
+      try {
+        const { rows, nextCursor } = await listAgeRestrictedCandidates(env.BLOSSOM_DB, { cursorSha, limit });
+
+        // Bounded concurrency (<= 6) so a single preview page never overwhelms
+        // the Workers subrequest budget even with retries.
+        const classifications = [];
+        const CONCURRENCY = 6;
+        let cursor = 0;
+        async function worker() {
+          while (true) {
+            const idx = cursor++;
+            if (idx >= rows.length) return;
+            const row = rows[idx];
+            let blossomDetail = null;
+            let blossomError = null;
+            try {
+              blossomDetail = await fetchBlossomBlobDetail(row.sha256, env);
+            } catch (err) {
+              blossomError = err;
+            }
+            classifications[idx] = classifyAgeRestrictedCandidate({
+              sha256: row.sha256,
+              blossomDetail,
+              blossomError
+            });
+          }
+        }
+        const workers = [];
+        for (let i = 0; i < Math.min(CONCURRENCY, rows.length); i++) {
+          workers.push(worker());
+        }
+        await Promise.all(workers);
+
+        const payload = buildPreviewResponse({ rows, classifications, limit, nextCursor });
+
+        // One structured log line per preview so wrangler tail shows real drift.
+        console.log(JSON.stringify({
+          event: 'age_restricted_reconcile.preview',
+          limit,
+          cursor: cursorSha,
+          nextCursor: payload.nextCursor,
+          counts: payload.counts
+        }));
+
+        return jsonResponse(200, payload);
+      } catch (error) {
+        console.error('[AGE-RESTRICTED-RECONCILE] Preview error:', error);
+        return jsonResponse(error.status || 500, { error: error.message });
+      }
+    }
+
+    // Admin API: Apply age-restricted Blossom reconciliation to an explicit list of SHAs.
+    // Re-reads live Blossom state per SHA and only replays the AGE_RESTRICTED
+    // webhook when Blossom still reports `restricted`. Returns explicit failed
+    // SHAs so the operator can retry the exact list. See
+    // docs/superpowers/plans/2026-04-17-age-restricted-blossom-reconciliation-plan.md
+    if (url.pathname === '/admin/api/reconcile/age-restricted/apply' && request.method === 'POST') {
+      const authError = await requireAuth(request, env);
+      if (authError) return authError;
+
+      let body;
+      try {
+        body = await request.json();
+      } catch (err) {
+        return jsonResponse(400, { error: 'Invalid JSON body' });
+      }
+
+      const shas = body?.shas;
+      if (!Array.isArray(shas) || shas.length === 0) {
+        return jsonResponse(400, { error: 'shas must be a non-empty array' });
+      }
+      if (shas.length > 100) {
+        return jsonResponse(400, { error: 'shas exceeds max batch size of 100' });
+      }
+      for (const sha of shas) {
+        if (typeof sha !== 'string' || !isValidSha256(sha)) {
+          return jsonResponse(400, { error: `Invalid SHA-256: ${sha}` });
+        }
+      }
+
+      try {
+        const result = await applyAgeRestrictedRepairs({
+          shas,
+          env,
+          fetchBlossomBlobDetail,
+          notifyBlossom
+        });
+        console.log('[AR-RECONCILE][apply]', JSON.stringify({
+          attempted: result.attempted,
+          notified: result.notified,
+          failed: result.failed,
+          skipped: result.skipped
+        }));
+        return jsonResponse(200, result);
+      } catch (error) {
+        console.error('[AR-RECONCILE][apply] Unhandled error:', error);
+        return jsonResponse(500, { error: error.message });
       }
     }
 
