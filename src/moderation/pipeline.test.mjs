@@ -168,7 +168,7 @@ describe('Moderation Pipeline', () => {
     expect(result.topicProfile).toBeNull();
   });
 
-  it('retains downstream signals for Hive nudity classifications', async () => {
+  it('keeps benign Hive nudity SAFE while retaining downstream nudity signals', async () => {
     const mockFetch = vi.fn(async (url) => {
       if (typeof url === 'string' && url.endsWith('.vtt')) {
         return {
@@ -215,18 +215,16 @@ describe('Moderation Pipeline', () => {
     }, env, mockFetch);
 
     expect(result.provider).toBe('hiveai');
-    expect(result.action).toBe('AGE_RESTRICTED');
-    expect(result.category).toBe('nudity');
+    expect(result.action).toBe('SAFE');
     expect(result.scores.nudity).toBe(0.91);
+    expect(result.scores.sexual).toBe(0);
+    expect(result.scores.porn).toBe(0);
     expect(result.downstreamSignals?.hasSignals).toBe(true);
     expect(result.downstreamSignals?.scores?.nudity).toBe(0.91);
     expect(result.downstreamSignals?.primaryConcern).toBe('nudity');
-    expect(result.rawClassifierData?.allClassMaxScores?.yes_male_nudity).toBe(0.91);
-    expect(result.rawClassifierData?.allClassMaxScores?.yes_male_swimwear).toBe(0.88);
-    expect(result.rawClassifierData?.allClassMaxScores?.yes_male_underwear).toBe(0.83);
   });
 
-  it('maps Hive sexual display into the current nudity category', async () => {
+  it('should detect Hive sexual content and return AGE_RESTRICTED', async () => {
     const mockFetch = vi.fn(async (url) => {
       if (typeof url === 'string' && url.endsWith('.vtt')) {
         return {
@@ -273,10 +271,9 @@ describe('Moderation Pipeline', () => {
 
     expect(result.provider).toBe('hiveai');
     expect(result.action).toBe('AGE_RESTRICTED');
-    expect(result.category).toBe('nudity');
-    expect(result.scores.nudity).toBe(0.9);
-    expect(result.rawClassifierData?.allClassMaxScores?.yes_sexual_display).toBe(0.9);
-    expect(result.rawClassifierData?.allClassMaxScores?.yes_sex_toy).toBe(0.82);
+    expect(result.category).toBe('sexual');
+    expect(result.scores.sexual).toBe(0.9);
+    expect(result.scores.porn).toBe(0);
   });
 
   it('should detect borderline violence and return REVIEW', async () => {
@@ -443,7 +440,7 @@ describe('Moderation Pipeline', () => {
   });
 
   it('keeps imported original vines SAFE while retaining raw AI scores', async () => {
-    const sha256 = 'i'.repeat(64);
+    const sha256 = 'c'.repeat(64);
     globalThis.WebSocket = createNostrLookupWebSocket({
       id: 'evt-original-vine',
       content: 'classic archive vine',
@@ -559,7 +556,7 @@ describe('Moderation Pipeline', () => {
   });
 
   it('keeps downstream moderation signals for original vines when non-AI scores are high', async () => {
-    const sha256 = 'j'.repeat(64);
+    const sha256 = 'd'.repeat(64);
     globalThis.WebSocket = createNostrLookupWebSocket({
       id: 'evt-original-vine-signals',
       content: 'classic archive vine',
