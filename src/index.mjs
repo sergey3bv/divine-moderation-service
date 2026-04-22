@@ -454,6 +454,21 @@ async function syncActionSpecificKVState(sha256, action, reason, category, env) 
   }
 }
 
+function normalizeFlaggedFrames(value) {
+  return Array.isArray(value) ? value : [];
+}
+
+async function loadPersistedFlaggedFrames(sha256, env, existingClassifier = null, existingModerationKv = null) {
+  const classifierPayload = existingClassifier || parseMaybeJson(await env.MODERATION_KV.get(`classifier:${sha256}`), {});
+  const classifierFrames = normalizeFlaggedFrames(classifierPayload?.flaggedFrames);
+  if (classifierFrames.length > 0) {
+    return classifierFrames;
+  }
+
+  const moderationPayload = existingModerationKv || parseMaybeJson(await env.MODERATION_KV.get(`moderation:${sha256}`), null);
+  return normalizeFlaggedFrames(moderationPayload?.flaggedFrames);
+}
+
 async function processPendingTranscriptReprocess(env) {
   if (!env.BLOSSOM_DB || !env.MODERATION_KV) {
     return;
@@ -513,9 +528,12 @@ async function processPendingTranscriptReprocess(env) {
 
       const videoScores = parseMaybeJson(row.scores, {});
       const existingCategories = parseMaybeJson(row.categories, []);
+      const existingClassifier = parseMaybeJson(await env.MODERATION_KV.get(`classifier:${sha256}`), {});
+      const existingModerationKv = parseMaybeJson(await env.MODERATION_KV.get(`moderation:${sha256}`), null);
+      const persistedFlaggedFrames = await loadPersistedFlaggedFrames(sha256, env, existingClassifier, existingModerationKv);
       const classification = classifyModerationResult({
         maxScores: videoScores || {},
-        flaggedFrames: [],
+        flaggedFrames: persistedFlaggedFrames,
         text_scores: textScores
       }, effectiveEnv);
 
@@ -544,13 +562,13 @@ async function processPendingTranscriptReprocess(env) {
         continue;
       }
 
-      const existingClassifier = parseMaybeJson(await env.MODERATION_KV.get(`classifier:${sha256}`), {});
       const classifierPayload = {
         sha256,
         provider: existingClassifier?.provider || row.provider || 'transcript-reprocess',
         moderatedAt: existingClassifier?.moderatedAt || checkedAt,
         rawClassifierData: existingClassifier?.rawClassifierData || null,
         sceneClassification: existingClassifier?.sceneClassification || null,
+        flaggedFrames: persistedFlaggedFrames,
         topicProfile: topicProfile || null,
         text_scores: textScores
       };
@@ -560,7 +578,6 @@ async function processPendingTranscriptReprocess(env) {
         { expirationTtl: 60 * 60 * 24 * 180 }
       );
 
-      const existingModerationKv = parseMaybeJson(await env.MODERATION_KV.get(`moderation:${sha256}`), null);
       if (existingModerationKv) {
         const moderationPayload = {
           ...existingModerationKv,
@@ -586,7 +603,7 @@ async function processPendingTranscriptReprocess(env) {
           ...classification,
           sha256,
           action: newAction,
-          flaggedFrames: [],
+          flaggedFrames: persistedFlaggedFrames,
           cdnUrl: row.content_url || `https://${env.CDN_DOMAIN || 'media.divine.video'}/${sha256}`,
           uploadedBy: row.uploaded_by || null,
           categories: existingCategories || [],
@@ -4235,6 +4252,8 @@ async function runMigration() {
               rawClassifierData: result.rawClassifierData || null,
               // Layer 2: VLM scene classification (topics, setting, objects, activities, mood, description)
               sceneClassification: formatForStorage(result.sceneClassification),
+              // Preserve frame-level evidence for transcript reprocess republishing.
+              flaggedFrames: result.flaggedFrames || [],
               // Layer 3: VTT topic extraction (topic categories from transcript)
               topicProfile: result.topicProfile || null
             };
