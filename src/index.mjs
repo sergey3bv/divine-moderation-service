@@ -406,8 +406,16 @@ async function fetchTranscriptAsset(sha256, env) {
   };
 }
 
-function normalizeModerationAction(action) {
-  const normalized = typeof action === 'string' ? action.toUpperCase() : '';
+function normalizeModerationAction(action, { sha256 = null, source = null } = {}) {
+  const rawAction = typeof action === 'string' ? action : '';
+  const normalized = rawAction.toUpperCase();
+  if (!VALID_MODERATION_ACTIONS.has(normalized) && rawAction.trim()) {
+    const contextLabel = source ? ` (${source})` : '';
+    const safeSha = sha256 || 'unknown-sha';
+    console.warn(
+      `[CRON] Transcript reprocess normalized unknown moderation action to SAFE${contextLabel} for ${safeSha}: ${rawAction}`
+    );
+  }
   return VALID_MODERATION_ACTIONS.has(normalized) ? normalized : 'SAFE';
 }
 
@@ -519,8 +527,14 @@ async function processPendingTranscriptReprocess(env) {
         text_scores: textScores
       }, effectiveEnv);
 
-      const oldAction = normalizeModerationAction(row.action);
-      const newAction = normalizeModerationAction(classification.action);
+      const oldAction = normalizeModerationAction(row.action, {
+        sha256,
+        source: 'stored-action'
+      });
+      const newAction = normalizeModerationAction(classification.action, {
+        sha256,
+        source: 'classification-action'
+      });
 
       const transcriptActionUpdate = await env.BLOSSOM_DB.prepare(`
         UPDATE moderation_results
