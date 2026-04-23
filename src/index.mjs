@@ -454,6 +454,12 @@ async function syncActionSpecificKVState(sha256, action, reason, category, env) 
   }
 }
 
+function transcriptReprocessNotificationKey(sha256, oldAction, newAction) {
+  const fromAction = normalizeModerationAction(oldAction || 'UNKNOWN');
+  const toAction = normalizeModerationAction(newAction || 'UNKNOWN');
+  return `transcript-reprocess-notified:${sha256}:${fromAction}:${toAction}`;
+}
+
 async function processPendingTranscriptReprocess(env) {
   if (!env.BLOSSOM_DB || !env.MODERATION_KV) {
     return;
@@ -581,6 +587,13 @@ async function processPendingTranscriptReprocess(env) {
       }
 
       if (oldAction !== newAction) {
+        const notificationKey = transcriptReprocessNotificationKey(sha256, oldAction, newAction);
+        const alreadyNotified = await env.MODERATION_KV.get(notificationKey);
+        if (alreadyNotified) {
+          console.log(`[CRON] Transcript reprocess skipped duplicate downstream notify for ${sha256} (${oldAction} -> ${newAction})`);
+          continue;
+        }
+
         await syncActionSpecificKVState(sha256, newAction, classification.reason, classification.category, env);
         await handleModerationResult({
           ...classification,
@@ -598,6 +611,7 @@ async function processPendingTranscriptReprocess(env) {
           topicProfile: topicProfile || null,
           text_scores: textScores
         }, env);
+        await env.MODERATION_KV.put(notificationKey, checkedAt, { expirationTtl: 60 * 60 * 24 * 7 });
       } else {
         console.log(`[CRON] Transcript reprocess resolved ${sha256} without action change (${newAction})`);
       }
