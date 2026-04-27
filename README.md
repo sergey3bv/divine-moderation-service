@@ -88,6 +88,7 @@ VIOLENCE_THRESHOLD_MEDIUM = "0.6"
 AI_GENERATED_THRESHOLD_HIGH = "0.8"   # Auto-quarantine AI content
 AI_GENERATED_THRESHOLD_MEDIUM = "0.6" # Flag AI content for review
 TRANSCRIPT_REPROCESS_BATCH_SIZE = "20" # Pending transcript rows to reprocess each cron tick
+TRANSCRIPT_REPROCESS_MAX_AGE_DAYS = "7" # Abandon transcript pending rows older than this many days
 
 [[kv_namespaces]]
 binding = "MODERATION_KV"
