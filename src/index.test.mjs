@@ -2624,10 +2624,11 @@ describe('RD auto-escalation cron integration', () => {
 });
 
 describe('Transcript reprocess cron integration', () => {
-  function createTranscriptReprocessEnv({ moderationRow, kvStore, blossomPayloads }) {
+  function createTranscriptReprocessEnv({ moderationRow, kvStore, blossomPayloads, envOverrides = {} }) {
     return {
       CDN_DOMAIN: 'media.divine.video',
       BLOSSOM_WEBHOOK_URL: 'https://mock-blossom.test/admin/moderate',
+      TRANSCRIPT_REPROCESS_MAX_AGE_DAYS: '7',
       BLOSSOM_DB: {
         prepare(sql) {
           let bindings = [];
@@ -2694,9 +2695,79 @@ describe('Transcript reprocess cron integration', () => {
         }
       },
       MODERATION_QUEUE: { async send() {} },
-      __blossomPayloads: blossomPayloads
+      __blossomPayloads: blossomPayloads,
+      ...envOverrides
     };
   }
+
+  function isoDaysAgo(days) {
+    return new Date(Date.now() - (days * 24 * 60 * 60 * 1000)).toISOString();
+  }
+
+  it('abandons stale transcript pending rows after configured max age', async () => {
+    const kvStore = new Map();
+    const blossomPayloads = [];
+    const moderationRow = {
+      sha256: SHA256,
+      action: 'SAFE',
+      provider: 'hiveai',
+      scores: JSON.stringify({ nudity: 0.05, violence: 0.01, ai_generated: 0.01 }),
+      categories: JSON.stringify([]),
+      raw_response: JSON.stringify({}),
+      moderated_at: isoDaysAgo(10),
+      transcript_pending_since: isoDaysAgo(10),
+      uploaded_by: null,
+      title: null,
+      published_at: null,
+      content_url: `https://media.divine.video/${SHA256}`,
+      transcript_pending: 1,
+      transcript_last_checked_at: null,
+      transcript_resolved_at: null
+    };
+    kvStore.set(`moderation:${SHA256}`, JSON.stringify({ sha256: SHA256, action: 'SAFE', reason: null }));
+    const env = createTranscriptReprocessEnv({
+      moderationRow,
+      kvStore,
+      blossomPayloads,
+      envOverrides: { TRANSCRIPT_REPROCESS_MAX_AGE_DAYS: '5' }
+    });
+
+    const origFetch = globalThis.fetch;
+    globalThis.fetch = async (url, init) => {
+      if (typeof url === 'string' && url.endsWith(`/${SHA256}.vtt`)) {
+        return {
+          ok: true,
+          status: 202,
+          headers: { get(name) { return name === 'Retry-After' ? '30' : null; } },
+          json: async () => ({ status: 'processing' })
+        };
+      }
+      if (url === env.BLOSSOM_WEBHOOK_URL) {
+        blossomPayloads.push(JSON.parse(init.body));
+      }
+      return new Response(JSON.stringify({ success: true }), { status: 200 });
+    };
+
+    try {
+      await worker.scheduled(
+        { cron: '*/5 * * * *', scheduledTime: Date.now() },
+        env,
+        { waitUntil: () => {} }
+      );
+
+      expect(moderationRow.transcript_pending).toBe(0);
+      expect(moderationRow.action).toBe('SAFE');
+      expect(moderationRow.transcript_resolved_at).toBeTruthy();
+      expect(blossomPayloads).toHaveLength(0);
+
+      const moderationPayload = JSON.parse(kvStore.get(`moderation:${SHA256}`));
+      expect(moderationPayload.transcriptPending).toBe(false);
+      expect(moderationPayload.transcriptResolvedAt).toBeTruthy();
+      expect(moderationPayload.transcriptResolutionReason).toBe('max_age_abandoned');
+    } finally {
+      globalThis.fetch = origFetch;
+    }
+  });
 
   it('keeps transcript pending rows pending while VTT is still 202', async () => {
     const kvStore = new Map();
@@ -2708,6 +2779,8 @@ describe('Transcript reprocess cron integration', () => {
       scores: JSON.stringify({ nudity: 0.05, violence: 0.01, ai_generated: 0.01 }),
       categories: JSON.stringify([]),
       raw_response: JSON.stringify({}),
+      moderated_at: isoDaysAgo(2),
+      transcript_pending_since: isoDaysAgo(2),
       uploaded_by: null,
       title: null,
       published_at: null,
@@ -2745,6 +2818,122 @@ describe('Transcript reprocess cron integration', () => {
       expect(moderationRow.transcript_last_checked_at).toBeTruthy();
       expect(moderationRow.transcript_resolved_at).toBeNull();
       expect(blossomPayloads).toHaveLength(0);
+    } finally {
+      globalThis.fetch = origFetch;
+    }
+  });
+
+  it('uses default 7-day max age when env var is not set', async () => {
+    const kvStore = new Map();
+    const blossomPayloads = [];
+    const moderationRow = {
+      sha256: SHA256,
+      action: 'SAFE',
+      provider: 'hiveai',
+      scores: JSON.stringify({ nudity: 0.05, violence: 0.01, ai_generated: 0.01 }),
+      categories: JSON.stringify([]),
+      raw_response: JSON.stringify({}),
+      moderated_at: isoDaysAgo(8),
+      transcript_pending_since: isoDaysAgo(8),
+      uploaded_by: null,
+      title: null,
+      published_at: null,
+      content_url: `https://media.divine.video/${SHA256}`,
+      transcript_pending: 1,
+      transcript_last_checked_at: null,
+      transcript_resolved_at: null
+    };
+    kvStore.set(`moderation:${SHA256}`, JSON.stringify({ sha256: SHA256, action: 'SAFE' }));
+    const env = createTranscriptReprocessEnv({
+      moderationRow,
+      kvStore,
+      blossomPayloads,
+      envOverrides: { TRANSCRIPT_REPROCESS_MAX_AGE_DAYS: undefined }
+    });
+
+    const origFetch = globalThis.fetch;
+    globalThis.fetch = async (url, init) => {
+      if (typeof url === 'string' && url.endsWith(`/${SHA256}.vtt`)) {
+        return {
+          ok: true,
+          status: 202,
+          headers: { get(name) { return name === 'Retry-After' ? '30' : null; } },
+          json: async () => ({ status: 'processing' })
+        };
+      }
+      if (url === env.BLOSSOM_WEBHOOK_URL) {
+        blossomPayloads.push(JSON.parse(init.body));
+      }
+      return new Response(JSON.stringify({ success: true }), { status: 200 });
+    };
+
+    try {
+      await worker.scheduled(
+        { cron: '*/5 * * * *', scheduledTime: Date.now() },
+        env,
+        { waitUntil: () => {} }
+      );
+
+      expect(moderationRow.transcript_pending).toBe(0);
+      expect(moderationRow.transcript_resolved_at).toBeTruthy();
+      expect(blossomPayloads).toHaveLength(0);
+      const moderationPayload = JSON.parse(kvStore.get(`moderation:${SHA256}`));
+      expect(moderationPayload.transcriptResolutionReason).toBe('max_age_abandoned');
+    } finally {
+      globalThis.fetch = origFetch;
+    }
+  });
+
+  it('falls back to moderated_at when transcript_pending_since is missing', async () => {
+    const kvStore = new Map();
+    const blossomPayloads = [];
+    const moderationRow = {
+      sha256: SHA256,
+      action: 'SAFE',
+      provider: 'hiveai',
+      scores: JSON.stringify({ nudity: 0.05, violence: 0.01, ai_generated: 0.01 }),
+      categories: JSON.stringify([]),
+      raw_response: JSON.stringify({}),
+      moderated_at: isoDaysAgo(9),
+      transcript_pending_since: null,
+      uploaded_by: null,
+      title: null,
+      published_at: null,
+      content_url: `https://media.divine.video/${SHA256}`,
+      transcript_pending: 1,
+      transcript_last_checked_at: null,
+      transcript_resolved_at: null
+    };
+    kvStore.set(`moderation:${SHA256}`, JSON.stringify({ sha256: SHA256, action: 'SAFE' }));
+    const env = createTranscriptReprocessEnv({ moderationRow, kvStore, blossomPayloads });
+
+    const origFetch = globalThis.fetch;
+    globalThis.fetch = async (url, init) => {
+      if (typeof url === 'string' && url.endsWith(`/${SHA256}.vtt`)) {
+        return {
+          ok: true,
+          status: 202,
+          headers: { get(name) { return name === 'Retry-After' ? '30' : null; } },
+          json: async () => ({ status: 'processing' })
+        };
+      }
+      if (url === env.BLOSSOM_WEBHOOK_URL) {
+        blossomPayloads.push(JSON.parse(init.body));
+      }
+      return new Response(JSON.stringify({ success: true }), { status: 200 });
+    };
+
+    try {
+      await worker.scheduled(
+        { cron: '*/5 * * * *', scheduledTime: Date.now() },
+        env,
+        { waitUntil: () => {} }
+      );
+
+      expect(moderationRow.transcript_pending).toBe(0);
+      expect(moderationRow.transcript_resolved_at).toBeTruthy();
+      const moderationPayload = JSON.parse(kvStore.get(`moderation:${SHA256}`));
+      expect(moderationPayload.transcriptResolutionReason).toBe('max_age_abandoned');
     } finally {
       globalThis.fetch = origFetch;
     }
@@ -3039,6 +3228,70 @@ describe('Transcript reprocess cron integration', () => {
       expect(moderationRow.action).toBe('QUARANTINE');
       expect(moderationRow.transcript_pending).toBe(1);
       expect(moderationRow.transcript_resolved_at).toBeNull();
+      expect(blossomPayloads).toHaveLength(0);
+    } finally {
+      globalThis.fetch = origFetch;
+    }
+  });
+
+  it('keeps stale pending row untouched when manually reviewed', async () => {
+    const kvStore = new Map();
+    const blossomPayloads = [];
+    const moderationRow = {
+      sha256: SHA256,
+      action: 'QUARANTINE',
+      provider: 'hiveai',
+      scores: JSON.stringify({ nudity: 0.05, violence: 0.01, ai_generated: 0.01 }),
+      categories: JSON.stringify([]),
+      raw_response: JSON.stringify({}),
+      moderated_at: isoDaysAgo(10),
+      transcript_pending_since: isoDaysAgo(10),
+      uploaded_by: null,
+      title: null,
+      published_at: null,
+      content_url: `https://media.divine.video/${SHA256}`,
+      reviewed_by: 'admin',
+      reviewed_at: '2026-04-22T10:00:00.000Z',
+      transcript_pending: 1,
+      transcript_last_checked_at: null,
+      transcript_resolved_at: null
+    };
+    kvStore.set(`moderation:${SHA256}`, JSON.stringify({ sha256: SHA256, action: 'QUARANTINE' }));
+    const env = createTranscriptReprocessEnv({
+      moderationRow,
+      kvStore,
+      blossomPayloads,
+      envOverrides: { TRANSCRIPT_REPROCESS_MAX_AGE_DAYS: '5' }
+    });
+
+    const origFetch = globalThis.fetch;
+    globalThis.fetch = async (url, init) => {
+      if (typeof url === 'string' && url.endsWith(`/${SHA256}.vtt`)) {
+        return {
+          ok: true,
+          status: 202,
+          headers: { get(name) { return name === 'Retry-After' ? '30' : null; } },
+          json: async () => ({ status: 'processing' })
+        };
+      }
+      if (url === env.BLOSSOM_WEBHOOK_URL) {
+        blossomPayloads.push(JSON.parse(init.body));
+      }
+      return new Response(JSON.stringify({ success: true }), { status: 200 });
+    };
+
+    try {
+      await worker.scheduled(
+        { cron: '*/5 * * * *', scheduledTime: Date.now() },
+        env,
+        { waitUntil: () => {} }
+      );
+
+      expect(moderationRow.action).toBe('QUARANTINE');
+      expect(moderationRow.transcript_pending).toBe(1);
+      expect(moderationRow.transcript_resolved_at).toBeNull();
+      const moderationPayload = JSON.parse(kvStore.get(`moderation:${SHA256}`));
+      expect(moderationPayload.transcriptResolutionReason).toBeUndefined();
       expect(blossomPayloads).toHaveLength(0);
     } finally {
       globalThis.fetch = origFetch;

@@ -411,6 +411,14 @@ function normalizeModerationAction(action) {
   return VALID_MODERATION_ACTIONS.has(normalized) ? normalized : 'SAFE';
 }
 
+function parseIsoTimestampMs(value) {
+  if (typeof value !== 'string' || value.length === 0) {
+    return null;
+  }
+  const parsedMs = Date.parse(value);
+  return Number.isFinite(parsedMs) ? parsedMs : null;
+}
+
 async function getEffectiveModerationEnv(env) {
   let effectiveEnv = env;
   try {
@@ -474,9 +482,14 @@ async function processPendingTranscriptReprocess(env) {
     return;
   }
 
+  const maxAgeDaysRaw = Number.parseInt(env.TRANSCRIPT_REPROCESS_MAX_AGE_DAYS || '7', 10);
+  const maxAgeDays = Math.min(Math.max(Number.isFinite(maxAgeDaysRaw) ? maxAgeDaysRaw : 7, 1), 365);
+  const maxAgeMs = maxAgeDays * 24 * 60 * 60 * 1000;
+  const nowMs = Date.now();
   const batchSize = Math.min(Math.max(Number.parseInt(env.TRANSCRIPT_REPROCESS_BATCH_SIZE || '20', 10) || 20, 1), 100);
   const pendingResult = await env.BLOSSOM_DB.prepare(`
-    SELECT sha256, action, provider, scores, categories, raw_response, uploaded_by, title, published_at, content_url
+    SELECT sha256, action, provider, scores, categories, raw_response, uploaded_by, title, published_at, content_url,
+           transcript_pending_since, moderated_at
     FROM moderation_results
     WHERE transcript_pending = 1
     ORDER BY COALESCE(transcript_pending_since, moderated_at) ASC
@@ -494,8 +507,43 @@ async function processPendingTranscriptReprocess(env) {
   for (const row of rows) {
     const { sha256 } = row;
     const checkedAt = new Date().toISOString();
+    const pendingSinceMs = parseIsoTimestampMs(row.transcript_pending_since) ?? parseIsoTimestampMs(row.moderated_at);
 
     try {
+      if (pendingSinceMs !== null && (nowMs - pendingSinceMs) >= maxAgeMs) {
+        const staleUpdate = await env.BLOSSOM_DB.prepare(`
+          UPDATE moderation_results
+          SET transcript_pending = 0,
+              transcript_last_checked_at = ?,
+              transcript_resolved_at = ?
+          WHERE sha256 = ? AND transcript_pending = 1 AND reviewed_by IS NULL
+        `).bind(checkedAt, checkedAt, sha256).run();
+
+        if (staleUpdate?.meta?.changes === 0) {
+          console.log(`[CRON] Transcript reprocess skipped ${sha256} because row was manually reviewed`);
+          continue;
+        }
+
+        const existingModerationKv = parseMaybeJson(await env.MODERATION_KV.get(`moderation:${sha256}`), null);
+        const staleAction = normalizeModerationAction(row.action);
+        const moderationPayload = {
+          ...(existingModerationKv || {}),
+          sha256,
+          action: existingModerationKv?.action || staleAction,
+          transcriptPending: false,
+          transcriptResolvedAt: checkedAt,
+          transcriptResolutionReason: 'max_age_abandoned'
+        };
+        await env.MODERATION_KV.put(
+          `moderation:${sha256}`,
+          JSON.stringify(moderationPayload),
+          { expirationTtl: 60 * 60 * 24 * 90 }
+        );
+
+        console.log(`[CRON] Transcript reprocess abandoned ${sha256} after ${maxAgeDays} day max age`);
+        continue;
+      }
+
       const transcript = await fetchTranscriptAsset(sha256, env);
 
       if (transcript.pending) {
