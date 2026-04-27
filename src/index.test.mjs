@@ -2806,6 +2806,26 @@ describe('Transcript reprocess cron integration', () => {
 
   it('notifies downstream when transcript reprocess changes action', async () => {
     const kvStore = new Map();
+    const persistedFlaggedFrames = [
+      {
+        position: 3,
+        timestamp: 1.5,
+        scores: { violence: 0.84 },
+        source: 'moderation'
+      }
+    ];
+    kvStore.set(`classifier:${SHA256}`, JSON.stringify({
+      sha256: SHA256,
+      provider: 'hiveai',
+      moderatedAt: '2026-04-20T00:00:00.000Z',
+      rawClassifierData: null,
+      sceneClassification: null,
+      flaggedFrames: persistedFlaggedFrames
+    }));
+    kvStore.set(`moderation:${SHA256}`, JSON.stringify({
+      sha256: SHA256,
+      flaggedFrames: persistedFlaggedFrames
+    }));
     const blossomPayloads = [];
     const moderationRow = {
       sha256: SHA256,
@@ -2854,6 +2874,9 @@ describe('Transcript reprocess cron integration', () => {
         action: 'PERMANENT_BAN'
       });
       expect(kvStore.has(`permanent-ban:${SHA256}`)).toBe(true);
+      const classifierData = JSON.parse(kvStore.get(`classifier:${SHA256}`));
+      expect(classifierData.flaggedFrames).toEqual(persistedFlaggedFrames);
+      expect(classifierData.flaggedFrames).not.toEqual([]);
     } finally {
       globalThis.fetch = origFetch;
     }
